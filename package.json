@@ -1,17 +1,52 @@
 {
   "name": "novelforge-agent",
   "version": "0.1.0",
-  "private": true,
+  "description": "Local-first long-form novel workflow engine for any MCP host (Claude Code, Codex CLI, …) or CLI. State machine + zod schemas + BM25 retrieval + persistent project state. No LLM dependency.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "codex",
+    "novel",
+    "fiction",
+    "writing",
+    "agent",
+    "workflow",
+    "bm25",
+    "retrieval"
+  ],
+  "homepage": "https://github.com/linkzhao/novelforge-agent#readme",
+  "bugs": {
+    "url": "https://github.com/linkzhao/novelforge-agent/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/linkzhao/novelforge-agent.git"
+  },
+  "license": "MIT",
+  "author": "linkzhao <linkzhao8@gmail.com>",
   "type": "module",
   "bin": {
     "novelforge-agent": "./dist/src/cli/index.js",
     "novelforge-agent-mcp": "./dist/src/mcp/server.js"
   },
+  "files": [
+    "dist/src/**/*.js",
+    "dist/src/**/*.d.ts",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test dist/test/*.test.js",
     "dev:mcp": "tsx src/mcp/server.ts",
-    "dev:cli": "tsx src/cli/index.ts"
+    "dev:cli": "tsx src/cli/index.ts",
+    "prepublishOnly": "npm run build && npm test",
+    "prepare": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.0",

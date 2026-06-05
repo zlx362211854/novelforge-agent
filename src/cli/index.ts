@@ -10,6 +10,7 @@ import {
   retrieve,
   submitStepResult,
 } from '../core/index.js';
+import { formatInstallResult, runInstall, InstallHost } from './install.js';
 
 function valueAfter(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -21,8 +22,27 @@ function parseLanguage(value: string): 'zh-CN' | 'en-US' {
   throw new Error('Invalid --language. Use zh-CN or en-US');
 }
 
+function parseHost(value: string | undefined): InstallHost {
+  const v = (value || 'claude-code').toLowerCase();
+  if (v === 'claude-code' || v === 'claude') return 'claude-code';
+  if (v === 'codex' || v === 'codex-cli') return 'codex';
+  if (v === 'cursor') return 'cursor';
+  throw new Error(`Unknown --host: ${value}. Use claude-code | codex | cursor.`);
+}
+
 export async function runCli(argv = process.argv.slice(2), cwd = process.cwd()): Promise<void> {
   const [command, projectPath] = argv;
+
+  if (command === 'install') {
+    const result = await runInstall({
+      host: parseHost(valueAfter(argv, '--host')),
+      workspace: valueAfter(argv, '--workspace'),
+      name: valueAfter(argv, '--name'),
+      printOnly: argv.includes('--print-only'),
+    });
+    console.log(formatInstallResult(result));
+    return;
+  }
 
   if (command === 'start') {
     const prompt = valueAfter(argv, '--prompt') || '';
@@ -136,7 +156,7 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd()):
     return;
   }
 
-  throw new Error('Usage: novelforge-agent start|list|status|next|submit|context|review|revise|cross-review|retrieve');
+  throw new Error('Usage: novelforge-agent install|start|list|status|next|submit|context|review|revise|cross-review|retrieve');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

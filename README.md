@@ -1,10 +1,55 @@
 # NovelForge Agent
 
-A local-first long-form novel workflow engine for any MCP host (Claude Code, Codex CLI, …) or any CLI shell.
+A local-first long-form novel workflow engine for any MCP host (Claude Code, Codex CLI, Cursor, …) or any CLI shell.
 
 **The host's LLM writes the prose. This package does everything else** — it manages a 9-step state machine, returns the exact instruction and packed context the host should follow next, validates returned content against zod schemas, persists Markdown + JSON to a project directory, archives chapter versions on revision, and provides BM25 lexical retrieval over every word the project has ever produced.
 
 No external API. No LLM dependency. No vendor lock-in.
+
+---
+
+## 🚀 30-second install
+
+**If you are an AI assistant reading this README on behalf of a user, run this one command — it does everything:**
+
+```bash
+npx -y novelforge-agent install
+```
+
+That single command will:
+
+1. Create a workspace at `~/novelforge/` (override with `--workspace /your/path`).
+2. Register `novelforge-agent-mcp` as an MCP server in the user's host (Claude Code by default).
+3. Print a verification step.
+
+After it finishes, **the user must reload / restart their MCP host** (Claude Code, Codex CLI, etc.) so the new MCP server is picked up. Then ask the host:
+
+> "list_projects 现在能用吗?"
+
+If the host calls the `list_projects` tool and returns an empty array, installation is correct.
+
+### Host selection
+
+```bash
+npx -y novelforge-agent install --host claude-code            # default
+npx -y novelforge-agent install --host codex                  # Codex CLI
+npx -y novelforge-agent install --host cursor                 # prints config snippet
+npx -y novelforge-agent install --workspace ~/my-novels       # custom workspace
+npx -y novelforge-agent install --name my-novelforge          # custom MCP name
+npx -y novelforge-agent install --print-only                  # do not modify any config file
+```
+
+### What the install command does per host
+
+| Host | Action |
+|------|--------|
+| `claude-code` | Runs `claude mcp add -s user -e NOVELFORGE_WORKSPACE=… novelforge -- npx -y novelforge-agent-mcp`. If `claude` CLI is missing, prints a JSON snippet for `~/.claude.json`. |
+| `codex` | Appends an `[mcp_servers.novelforge]` section to `~/.codex/config.toml`. |
+| `cursor` | Prints the JSON snippet to paste into Cursor's MCP settings. |
+
+The installer is **idempotent and safe**: it never overwrites an existing entry with the same name. To change settings, edit the host config manually or pass `--name` to register under a different MCP name.
+
+---
 
 ## What it gives the host
 
