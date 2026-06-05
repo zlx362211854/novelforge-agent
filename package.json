@@ -1,0 +1,25 @@
+{
+  "name": "novelforge-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "novelforge-agent": "./dist/src/cli/index.js",
+    "novelforge-agent-mcp": "./dist/src/mcp/server.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "dev:mcp": "tsx src/mcp/server.ts",
+    "dev:cli": "tsx src/cli/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.3",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}
