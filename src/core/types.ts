@@ -5,7 +5,38 @@ export type WorkflowStep =
   | 'chapter'
   | 'memory_card'
   | 'continuity_review'
+  | 'chapter_review'
+  | 'chapter_revision'
+  | 'cross_chapter_review'
   | 'complete';
+
+export type ReviewSeverity = 'low' | 'medium' | 'high';
+
+export interface ChapterReviewIssue {
+  severity: ReviewSeverity;
+  category: 'character' | 'world' | 'timeline' | 'item' | 'knowledge' | 'pacing' | 'style' | 'architecture';
+  description: string;
+  evidence: string;
+  suggestion: string;
+}
+
+export interface ChapterReview {
+  chapterNumber: number;
+  status: 'clean' | 'issues_found';
+  issues: ChapterReviewIssue[];
+}
+
+export interface CrossChapterReview {
+  range: { start: number; end: number };
+  status: 'clean' | 'issues_found';
+  issues: Array<{
+    severity: ReviewSeverity;
+    chapters: number[];
+    description: string;
+    evidence: string;
+    suggestion: string;
+  }>;
+}
 
 export interface CoreCastMember {
   name: string;
@@ -52,15 +83,24 @@ export interface MemoryCard {
   openThreads: string[];
 }
 
+export interface PendingAction {
+  step: 'chapter_review' | 'chapter_revision' | 'cross_chapter_review';
+  chapterNumber?: number;
+  range?: { start: number; end: number };
+  feedback?: string;
+}
+
 export interface AgentState {
   projectId: string;
   projectPath: string;
   initialPrompt: string;
+  language: 'zh-CN' | 'en-US';
   targetChapters: number;
   currentStep: WorkflowStep;
   currentChapter: number;
   completedSteps: WorkflowStep[];
   files: Record<string, string>;
+  pendingAction?: PendingAction;
   createdAt: string;
   updatedAt: string;
 }

@@ -4,3 +4,6 @@ export * from './fileNames.js';
 export * from './projectStore.js';
 export * from './workflow.js';
 export * from './contextBuilder.js';
+export * from './prompts.js';
+export * from './retrieval/index.js';
+export * from './projectDiscovery.js';

@@ -33,3 +33,16 @@ export function chapterFileName(chapterNumber: number): string {
 export function memoryFileName(chapterNumber: number): string {
   return `chapter-${padChapterNumber(chapterNumber)}.json`;
 }
+
+export function chapterReviewFileName(chapterNumber: number): string {
+  return `chapter-${padChapterNumber(chapterNumber)}.json`;
+}
+
+export function crossChapterReviewFileName(start: number, end: number): string {
+  return `cross-${padChapterNumber(start)}-${padChapterNumber(end)}.json`;
+}
+
+export function chapterVersionFileName(chapterNumber: number, timestamp: string): string {
+  const safeTs = timestamp.replace(/[:.]/g, '-');
+  return `${padChapterNumber(chapterNumber)}.${safeTs}.md`;
+}

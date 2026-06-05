@@ -70,3 +70,32 @@ export const ContinuityReviewSchema = z.object({
     suggestion: z.string().min(1),
   })),
 });
+
+export const ChapterReviewIssueSchema = z.object({
+  severity: z.enum(['low', 'medium', 'high']),
+  category: z.enum(['character', 'world', 'timeline', 'item', 'knowledge', 'pacing', 'style', 'architecture']),
+  description: z.string().min(1),
+  evidence: z.string().min(1),
+  suggestion: z.string().min(1),
+});
+
+export const ChapterReviewSchema = z.object({
+  chapterNumber: z.number().int().positive(),
+  status: z.enum(['clean', 'issues_found']),
+  issues: z.array(ChapterReviewIssueSchema),
+});
+
+export const CrossChapterReviewSchema = z.object({
+  range: z.object({
+    start: z.number().int().positive(),
+    end: z.number().int().positive(),
+  }),
+  status: z.enum(['clean', 'issues_found']),
+  issues: z.array(z.object({
+    severity: z.enum(['low', 'medium', 'high']),
+    chapters: z.array(z.number().int().positive()).min(1),
+    description: z.string().min(1),
+    evidence: z.string().min(1),
+    suggestion: z.string().min(1),
+  })),
+});

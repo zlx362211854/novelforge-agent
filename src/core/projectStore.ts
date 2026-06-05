@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { AgentState } from './types.js';
 import { makeProjectSlug } from './fileNames.js';
@@ -7,6 +7,7 @@ import { makeProjectSlug } from './fileNames.js';
 export interface CreateProjectInput {
   workspaceRoot: string;
   prompt: string;
+  language?: AgentState['language'];
   outputDir?: string;
   targetChapters?: number;
 }
@@ -28,16 +29,31 @@ export async function ensureProjectDirectories(projectPath: string): Promise<voi
   await mkdir(projectPath, { recursive: true });
   await mkdir(join(projectPath, 'architecture'), { recursive: true });
   await mkdir(join(projectPath, 'chapters'), { recursive: true });
+  await mkdir(join(projectPath, 'chapters/.versions'), { recursive: true });
   await mkdir(join(projectPath, 'memory'), { recursive: true });
   await mkdir(join(projectPath, 'reviews'), { recursive: true });
+  await mkdir(join(projectPath, 'reviews/chapter'), { recursive: true });
+  await mkdir(join(projectPath, 'reviews/cross'), { recursive: true });
   await mkdir(join(projectPath, '.agent-recovery'), { recursive: true });
+}
+
+export async function archiveChapterVersion(projectPath: string, chapterRelative: string, versionRelative: string): Promise<string | undefined> {
+  const sourcePath = join(projectPath, chapterRelative);
+  try {
+    const existing = await readFile(sourcePath, 'utf8');
+    return saveMarkdownFile(projectPath, versionRelative, existing);
+  } catch {
+    return undefined;
+  }
 }
 
 export async function createProject(input: CreateProjectInput): Promise<CreateProjectResult> {
   const workspaceRoot = resolve(input.workspaceRoot);
   const baseDir = input.outputDir || 'novels';
   const targetChapters = Math.max(1, Math.floor(Number(input.targetChapters || 3)));
-  const slug = makeProjectSlug(input.prompt.slice(0, 48));
+  const baseSlug = makeProjectSlug(input.prompt.slice(0, 48));
+  const suffix = randomBytes(3).toString('hex');
+  const slug = `${baseSlug}-${suffix}`;
   const projectPath = resolve(workspaceRoot, baseDir, slug);
   assertInsideWorkspace(workspaceRoot, projectPath);
   await ensureProjectDirectories(projectPath);
@@ -47,6 +63,7 @@ export async function createProject(input: CreateProjectInput): Promise<CreatePr
     projectId: randomUUID(),
     projectPath,
     initialPrompt: input.prompt,
+    language: input.language || 'zh-CN',
     targetChapters,
     currentStep: 'novel_metadata',
     currentChapter: 1,

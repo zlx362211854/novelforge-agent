@@ -22,7 +22,8 @@ test('workflow advances from metadata to story bible', async () => {
 
     const first = await getNextStep(state.projectPath);
     assert.equal(first.currentStep, 'novel_metadata');
-    assert.match(first.instruction, /novel metadata/i);
+    assert.match(first.instruction, /长篇网络小说总策划/);
+    assert.match(first.instruction, /coreCast/);
 
     const next = await submitStepResult({
       projectPath: state.projectPath,
@@ -39,6 +40,28 @@ test('workflow advances from metadata to story bible', async () => {
 
     assert.equal(next.state.currentStep, 'story_bible');
     assert.match(await readFile(join(state.projectPath, 'novel.json'), 'utf8'), /灰烬证词/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('getNextStep returns English prompt when project language is en-US', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'novel-agent-'));
+  try {
+    const { state } = await createProject({
+      workspaceRoot: root,
+      prompt: 'Write a mystery serial about a forgotten orbital city',
+      language: 'en-US',
+      outputDir: 'novels',
+      targetChapters: 2,
+    });
+
+    const first = await getNextStep(state.projectPath);
+
+    assert.equal(first.currentStep, 'novel_metadata');
+    assert.match(first.instruction, /lead planner for a long-form serialized novel/);
+    assert.match(first.instruction, /Output valid JSON only/);
+    assert.doesNotMatch(first.instruction, /长篇网络小说总策划/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

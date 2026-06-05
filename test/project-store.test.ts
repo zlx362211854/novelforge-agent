@@ -31,6 +31,24 @@ test('createProject initializes file layout and state', async () => {
   }
 });
 
+test('createProject stores prompt language preference', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'novel-agent-'));
+  try {
+    const { state } = await createProject({
+      workspaceRoot: root,
+      prompt: 'Write an English space opera',
+      language: 'en-US',
+      outputDir: 'novels',
+      targetChapters: 1,
+    });
+
+    const saved = await loadState(state.projectPath);
+    assert.equal(saved.language, 'en-US');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('save helpers write readable markdown and formatted json', async () => {
   const root = await mkdtemp(join(tmpdir(), 'novel-agent-'));
   try {
