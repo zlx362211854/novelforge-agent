@@ -13,6 +13,24 @@ export const chapterRevisionHandler: StepHandler = async (state, content) => {
   const savedPaths = archived ? [archived] : [];
   savedPaths.push(await saveMarkdownFile(state.projectPath, chapterRelative, content));
   await indexChapter(state.projectPath, target, content);
+  if (state.pendingAction?.mode === 'gate') {
+    return {
+      savedPaths,
+      fileEntries: { [`chapter-${target}`]: chapterRelative },
+      next: {
+        kind: 'linear',
+        nextStep: 'chapter_review',
+        statePatch: {
+          pendingAction: {
+            step: 'chapter_review',
+            mode: 'gate',
+            chapterNumber: target,
+          },
+        },
+      },
+    };
+  }
+
   return {
     savedPaths,
     fileEntries: { [`chapter-${target}`]: chapterRelative },

@@ -31,6 +31,31 @@ test('buildContext returns chapter generation context without dumping every file
     await saveJsonFile(state.projectPath, 'architecture/chapters.json', [
       { chapterNumber: 1, title: '雾起', volumeId: 'v1', summary: '失踪案出现', requiredBeats: ['发现线索'] },
     ]);
+    await saveJsonFile(state.projectPath, 'architecture/volume-pacing.json', [
+      {
+        volumeId: 'v1',
+        start: '雾城第一起失踪案',
+        promise: '雾会吞掉记忆',
+        keyTurns: ['调查员发现雾有意识'],
+        midpoint: '失踪者其实留下坐标',
+        climax: '雾中档案室打开',
+        payoffs: ['雾城旧案'],
+        lingeringMysteries: ['雾的源头'],
+      },
+    ]);
+    await saveJsonFile(state.projectPath, 'characters.json', {
+      characters: [{
+        name: '许南',
+        role: 'protagonist',
+        goal: '查清失踪案',
+        belief: '所有失踪都有现实原因',
+        relationships: [],
+        abilities: ['现场观察'],
+        secrets: ['曾经在雾中失忆'],
+        emotionalState: '克制紧绷',
+        lastUpdatedAt: 0,
+      }],
+    });
 
     const context = await buildContext({
       projectPath: state.projectPath,
@@ -40,6 +65,9 @@ test('buildContext returns chapter generation context without dumping every file
 
     assert.match(context, /雾城/);
     assert.match(context, /雾起/);
+    assert.match(context, /Character State Table/);
+    assert.match(context, /Volume Pacing Board/);
+    assert.match(context, /雾会吞掉记忆/);
     assert.doesNotMatch(context, /agent-state/);
   } finally {
     await rm(root, { recursive: true, force: true });

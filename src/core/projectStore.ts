@@ -30,6 +30,7 @@ export async function ensureProjectDirectories(projectPath: string): Promise<voi
   await mkdir(join(projectPath, 'architecture'), { recursive: true });
   await mkdir(join(projectPath, 'chapters'), { recursive: true });
   await mkdir(join(projectPath, 'chapters/.versions'), { recursive: true });
+  await mkdir(join(projectPath, 'story-bible-versions'), { recursive: true });
   await mkdir(join(projectPath, 'memory'), { recursive: true });
   await mkdir(join(projectPath, 'reviews'), { recursive: true });
   await mkdir(join(projectPath, 'reviews/chapter'), { recursive: true });
@@ -39,6 +40,16 @@ export async function ensureProjectDirectories(projectPath: string): Promise<voi
 
 export async function archiveChapterVersion(projectPath: string, chapterRelative: string, versionRelative: string): Promise<string | undefined> {
   const sourcePath = join(projectPath, chapterRelative);
+  try {
+    const existing = await readFile(sourcePath, 'utf8');
+    return saveMarkdownFile(projectPath, versionRelative, existing);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function archiveStoryBible(projectPath: string, versionRelative: string): Promise<string | undefined> {
+  const sourcePath = join(projectPath, 'story-bible.md');
   try {
     const existing = await readFile(sourcePath, 'utf8');
     return saveMarkdownFile(projectPath, versionRelative, existing);

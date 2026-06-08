@@ -46,3 +46,8 @@ export function chapterVersionFileName(chapterNumber: number, timestamp: string)
   const safeTs = timestamp.replace(/[:.]/g, '-');
   return `${padChapterNumber(chapterNumber)}.${safeTs}.md`;
 }
+
+export function storyBibleVersionFileName(timestamp: string): string {
+  const safeTs = timestamp.replace(/[:.]/g, '-');
+  return `story-bible.${safeTs}.md`;
+}

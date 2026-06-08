@@ -43,6 +43,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test dist/test/*.test.js",
+    "test:e2e": "npm run build && bash scripts/e2e.sh",
+    "inspect": "npm run build && npx -y @modelcontextprotocol/inspector node dist/src/mcp/server.js",
+    "inspect:tools": "npm run build && npx -y @modelcontextprotocol/inspector --cli node dist/src/mcp/server.js --method tools/list",
+    "inspect:prompts": "npm run build && npx -y @modelcontextprotocol/inspector --cli node dist/src/mcp/server.js --method prompts/list",
     "dev:mcp": "tsx src/mcp/server.ts",
     "dev:cli": "tsx src/cli/index.ts",
     "prepublishOnly": "npm run build && npm test",

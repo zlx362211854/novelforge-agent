@@ -7,3 +7,7 @@ export * from './contextBuilder.js';
 export * from './prompts.js';
 export * from './retrieval/index.js';
 export * from './projectDiscovery.js';
+export * from './threadStore.js';
+export * from './bibleStore.js';
+export * from './projectOps.js';
+export * from './characterStore.js';

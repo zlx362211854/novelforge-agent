@@ -1,14 +1,20 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
 import {
+  amendStoryBible,
   buildContext,
   createProject,
+  deleteChapter,
+  forkProject,
   getNextStep,
   getProjectStatus,
   listProjects,
+  loadThreads,
+  redoStep,
   requestSideTrack,
   retrieve,
   submitStepResult,
+  updateThread,
 } from '../core/index.js';
 import { formatInstallResult, runInstall, InstallHost } from './install.js';
 
@@ -156,7 +162,74 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd()):
     return;
   }
 
-  throw new Error('Usage: novelforge-agent install|start|list|status|next|submit|context|review|revise|cross-review|retrieve');
+  if (command === 'amend-bible') {
+    if (!projectPath) throw new Error('Missing projectPath');
+    const file = valueAfter(argv, '--file');
+    const reason = valueAfter(argv, '--reason');
+    if (!file) throw new Error('Missing --file with new bible Markdown');
+    const content = await readFile(file, 'utf8');
+    console.log(JSON.stringify(await amendStoryBible({ projectPath, content, reason }), null, 2));
+    return;
+  }
+
+  if (command === 'threads') {
+    if (!projectPath) throw new Error('Missing projectPath');
+    const status = valueAfter(argv, '--status') as 'planted' | 'building' | 'paid' | 'dropped' | undefined;
+    const all = await loadThreads(projectPath);
+    const filtered = status ? all.filter((t) => t.status === status) : all;
+    console.log(JSON.stringify(filtered, null, 2));
+    return;
+  }
+
+  if (command === 'update-thread') {
+    if (!projectPath) throw new Error('Missing projectPath');
+    const id = valueAfter(argv, '--id');
+    if (!id) throw new Error('Missing --id');
+    const status = valueAfter(argv, '--status') as 'planted' | 'building' | 'paid' | 'dropped' | undefined;
+    const plannedPayoffAt = valueAfter(argv, '--planned-payoff');
+    const description = valueAfter(argv, '--description');
+    const notes = valueAfter(argv, '--notes');
+    const updated = await updateThread(projectPath, id, {
+      status,
+      plannedPayoffAt: plannedPayoffAt ? Number(plannedPayoffAt) : undefined,
+      description,
+      notes,
+    });
+    console.log(JSON.stringify(updated, null, 2));
+    return;
+  }
+
+  if (command === 'fork') {
+    if (!projectPath) throw new Error('Missing projectPath');
+    const label = valueAfter(argv, '--label');
+    console.log(JSON.stringify(await forkProject({ sourceProjectPath: projectPath, label }), null, 2));
+    return;
+  }
+
+  if (command === 'delete-chapter') {
+    if (!projectPath) throw new Error('Missing projectPath');
+    const chapter = valueAfter(argv, '--chapter');
+    if (!chapter) throw new Error('Missing --chapter');
+    console.log(JSON.stringify(await deleteChapter({ projectPath, chapterNumber: Number(chapter) }), null, 2));
+    return;
+  }
+
+  if (command === 'redo') {
+    if (!projectPath) throw new Error('Missing projectPath');
+    const step = valueAfter(argv, '--step') as
+      | 'novel_metadata' | 'story_bible' | 'architecture' | 'chapter' | 'memory_card' | 'continuity_review'
+      | undefined;
+    if (!step) throw new Error('Missing --step');
+    const chapter = valueAfter(argv, '--chapter');
+    console.log(JSON.stringify(await redoStep({
+      projectPath,
+      step,
+      chapterNumber: chapter ? Number(chapter) : undefined,
+    }), null, 2));
+    return;
+  }
+
+  throw new Error('Usage: novelforge-agent install|start|list|status|next|submit|context|review|revise|cross-review|retrieve|amend-bible|threads|update-thread|fork|delete-chapter|redo');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

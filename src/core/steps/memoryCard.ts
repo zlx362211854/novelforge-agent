@@ -3,6 +3,8 @@ import { MemoryCardSchema } from '../schemas.js';
 import { saveJsonFile } from '../projectStore.js';
 import { memoryFileName } from '../fileNames.js';
 import { indexMemoryCard } from '../retrieval/index.js';
+import { ingestMemoryCardThreads } from '../threadStore.js';
+import { applyCharacterUpdates } from '../characterStore.js';
 import { StepHandler, parseJson } from './types.js';
 
 export const memoryCardHandler: StepHandler = async (state, content) => {
@@ -10,6 +12,8 @@ export const memoryCardHandler: StepHandler = async (state, content) => {
   const relative = join('memory', memoryFileName(state.currentChapter));
   const path = await saveJsonFile(state.projectPath, relative, parsed);
   await indexMemoryCard(state.projectPath, state.currentChapter, parsed);
+  await ingestMemoryCardThreads(state.projectPath, state.currentChapter, parsed.threadActions);
+  await applyCharacterUpdates(state.projectPath, state.currentChapter, parsed.characterUpdates);
   const nextChapter = state.currentChapter + 1;
   return {
     savedPaths: [path],

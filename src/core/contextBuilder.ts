@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chapterFileName, chapterReviewFileName, memoryFileName } from './fileNames.js';
 import { formatHits, retrieve } from './retrieval/index.js';
+import { activeThreads, loadThreads } from './threadStore.js';
 
 export type ContextPurpose =
   | 'chapter_generation'
@@ -32,18 +33,33 @@ export async function buildContext(input: BuildContextInput): Promise<string> {
   const metadata = await readOptional(join(input.projectPath, 'novel.json'));
   const storyBible = await readOptional(join(input.projectPath, 'story-bible.md'));
   const chaptersJson = await readOptional(join(input.projectPath, 'architecture/chapters.json'));
+  const charactersJson = await readOptional(join(input.projectPath, 'characters.json'));
+  const volumePacingJson = await readOptional(join(input.projectPath, 'architecture/volume-pacing.json'));
 
   if (metadata) parts.push(`## Novel Metadata\n${metadata}`);
   if (storyBible) parts.push(`## Story Bible\n${storyBible.slice(0, 4000)}`);
+  if (charactersJson) parts.push(`## Character State Table\n${charactersJson}`);
+
+  function addVolumePacing(volumeId?: string): void {
+    if (!volumePacingJson) return;
+    try {
+      const boards = JSON.parse(volumePacingJson) as Array<{ volumeId: string }>;
+      const board = volumeId ? boards.find((item) => item.volumeId === volumeId) : undefined;
+      parts.push(`## Volume Pacing Board\n${JSON.stringify(board ?? boards, null, 2)}`);
+    } catch {
+      parts.push(`## Volume Pacing Board\n${volumePacingJson}`);
+    }
+  }
 
   if (input.purpose === 'chapter_generation' && input.chapterNumber) {
-    let currentArchitectureForQuery: { summary?: string; requiredBeats?: string[]; title?: string } | undefined;
+    let currentArchitectureForQuery: { summary?: string; requiredBeats?: string[]; title?: string; volumeId?: string } | undefined;
     if (chaptersJson) {
-      const chapters = JSON.parse(chaptersJson) as Array<{ chapterNumber: number; title: string; summary: string; requiredBeats?: string[] }>;
+      const chapters = JSON.parse(chaptersJson) as Array<{ chapterNumber: number; title: string; summary: string; requiredBeats?: string[]; volumeId?: string }>;
       const chapter = chapters.find((item) => item.chapterNumber === input.chapterNumber);
       if (chapter) {
         currentArchitectureForQuery = chapter;
         parts.push(`## Current Chapter Architecture\n${JSON.stringify(chapter, null, 2)}`);
+        addVolumePacing(chapter.volumeId);
       }
     }
     if (input.chapterNumber > 1) {
@@ -67,6 +83,18 @@ export async function buildContext(input: BuildContextInput): Promise<string> {
         const formatted = formatHits(hits);
         if (formatted) parts.push(`## Retrieved Relevant Snippets (lexical, BM25-style)\n${formatted}`);
       }
+
+      const allThreads = await loadThreads(input.projectPath);
+      const active = activeThreads(allThreads);
+      if (active.length) {
+        const lines = active.map((t) => {
+          const flags: string[] = [`#${t.id}`, `status=${t.status}`, `planted=ch${t.plantedAt}`];
+          if (t.plannedPayoffAt) flags.push(`payoff=ch${t.plannedPayoffAt}`);
+          if (t.lastTouchedAt !== t.plantedAt) flags.push(`touched=ch${t.lastTouchedAt}`);
+          return `- ${t.description}  (${flags.join(', ')})`;
+        });
+        parts.push(`## Active Foreshadow Threads (do not silently drop or contradict)\n${lines.join('\n')}`);
+      }
     }
   }
 
@@ -87,9 +115,12 @@ export async function buildContext(input: BuildContextInput): Promise<string> {
 
   if (input.purpose === 'chapter_review' && input.chapterNumber) {
     if (chaptersJson) {
-      const chapters = JSON.parse(chaptersJson) as Array<{ chapterNumber: number; title: string; summary: string; requiredBeats?: string[] }>;
+      const chapters = JSON.parse(chaptersJson) as Array<{ chapterNumber: number; title: string; summary: string; requiredBeats?: string[]; volumeId?: string }>;
       const arch = chapters.find((item) => item.chapterNumber === input.chapterNumber);
-      if (arch) parts.push(`## Target Chapter Architecture\n${JSON.stringify(arch, null, 2)}`);
+      if (arch) {
+        parts.push(`## Target Chapter Architecture\n${JSON.stringify(arch, null, 2)}`);
+        addVolumePacing(arch.volumeId);
+      }
     }
     const chapter = await readOptional(join(input.projectPath, 'chapters', chapterFileName(input.chapterNumber)));
     if (chapter) parts.push(`## Chapter ${input.chapterNumber} Text\n${chapter}`);
@@ -102,6 +133,15 @@ export async function buildContext(input: BuildContextInput): Promise<string> {
   if (input.purpose === 'revision' && input.chapterNumber) {
     const chapter = await readOptional(join(input.projectPath, 'chapters', chapterFileName(input.chapterNumber)));
     if (chapter) parts.push(`## Current Chapter Text\n${chapter}`);
+    if (chaptersJson) {
+      try {
+        const chapters = JSON.parse(chaptersJson) as Array<{ chapterNumber: number; volumeId?: string }>;
+        const arch = chapters.find((item) => item.chapterNumber === input.chapterNumber);
+        addVolumePacing(arch?.volumeId);
+      } catch {
+        // ignore malformed architecture here; review feedback is still useful
+      }
+    }
     const review = await readOptional(join(input.projectPath, 'reviews/chapter', chapterReviewFileName(input.chapterNumber)));
     if (review) parts.push(`## Editor Review\n${review}`);
     if (input.feedback) parts.push(`## Additional Feedback\n${input.feedback}`);

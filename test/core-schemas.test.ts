@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   NovelMetadataSchema,
   MemoryCardSchema,
+  ChapterReviewSchema,
   makeProjectSlug,
   chapterFileName,
   memoryFileName,
@@ -35,6 +36,25 @@ test('MemoryCardSchema rejects stringified arrays', () => {
       openThreads: [],
     });
   }, /Expected array|array/i);
+});
+
+test('ChapterReviewSchema requires structured acceptance gate', () => {
+  const parsed = ChapterReviewSchema.parse({
+    chapterNumber: 1,
+    status: 'clean',
+    acceptance: {
+      requiredBeats: { status: 'pass', evidence: 'beat completed', missingBeats: [] },
+      narrativeProgress: { status: 'pass', evidence: 'main line advanced' },
+      characterProgress: { status: 'pass', evidence: 'goal changed' },
+      foreshadowProgress: { status: 'pass', evidence: 'thread planted' },
+      storyBibleConsistency: { status: 'pass', evidence: 'no conflict' },
+      endingHook: { status: 'pass', evidence: 'clear hook' },
+      repetition: { status: 'pass', evidence: 'no repeated beat' },
+    },
+    issues: [],
+  });
+
+  assert.equal(parsed.acceptance.endingHook.status, 'pass');
 });
 
 test('file name helpers are stable and padded', () => {

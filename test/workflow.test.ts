@@ -10,6 +10,23 @@ import {
   loadState,
 } from '../src/core/index.js';
 
+function cleanReview(chapterNumber: number): string {
+  return JSON.stringify({
+    chapterNumber,
+    status: 'clean',
+    acceptance: {
+      requiredBeats: { status: 'pass', evidence: 'required beats are present', missingBeats: [] },
+      narrativeProgress: { status: 'pass', evidence: 'the chapter advances the scene goal' },
+      characterProgress: { status: 'pass', evidence: 'the protagonist state changes or is confirmed' },
+      foreshadowProgress: { status: 'pass', evidence: 'the open thread remains coherent' },
+      storyBibleConsistency: { status: 'pass', evidence: 'no story bible conflict' },
+      endingHook: { status: 'pass', evidence: 'the ending leaves a clear hook' },
+      repetition: { status: 'pass', evidence: 'no repeated prior beat' },
+    },
+    issues: [],
+  });
+}
+
 test('workflow advances from metadata to story bible', async () => {
   const root = await mkdtemp(join(tmpdir(), 'novel-agent-'));
   try {
@@ -123,7 +140,14 @@ test('chapter and memory submissions advance until continuity review', async () 
         chapters: [{ chapterNumber: 1, title: '旧车站', volumeId: 'v1', summary: '抵达', requiredBeats: ['抵达车站'] }],
       }),
     });
-    await submitStepResult({ projectPath: state.projectPath, step: 'chapter', content: '# 旧车站\n\n陈序下车。' });
+    const afterChapter = await submitStepResult({ projectPath: state.projectPath, step: 'chapter', content: '# 旧车站\n\n陈序下车。' });
+    assert.equal(afterChapter.state.currentStep, 'chapter_review');
+    const afterReview = await submitStepResult({
+      projectPath: state.projectPath,
+      step: 'chapter_review',
+      content: cleanReview(1),
+    });
+    assert.equal(afterReview.state.currentStep, 'memory_card');
     const afterMemory = await submitStepResult({
       projectPath: state.projectPath,
       step: 'memory_card',

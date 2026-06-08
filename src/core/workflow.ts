@@ -132,17 +132,17 @@ function buildPendingAction(state: AgentState, input: RequestSideTrackInput): Pe
   switch (input.step) {
     case 'chapter_review': {
       if (!input.chapterNumber) throw new Error('chapter_review requires chapterNumber');
-      return { step: 'chapter_review', chapterNumber: input.chapterNumber };
+      return { step: 'chapter_review', mode: 'side_track', chapterNumber: input.chapterNumber };
     }
     case 'chapter_revision': {
       if (!input.chapterNumber) throw new Error('chapter_revision requires chapterNumber');
-      return { step: 'chapter_revision', chapterNumber: input.chapterNumber, feedback: input.feedback };
+      return { step: 'chapter_revision', mode: 'side_track', chapterNumber: input.chapterNumber, feedback: input.feedback };
     }
     case 'cross_chapter_review': {
       const max = maxExistingChapter(state);
       const range = input.range ?? { start: 1, end: max || state.currentChapter };
       if (range.start < 1 || range.end < range.start) throw new Error('Invalid range');
-      return { step: 'cross_chapter_review', range };
+      return { step: 'cross_chapter_review', mode: 'side_track', range };
     }
     default:
       throw new Error(`Unknown side-track step: ${(input as RequestSideTrackInput).step}`);

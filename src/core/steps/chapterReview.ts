@@ -9,9 +9,35 @@ export const chapterReviewHandler: StepHandler = async (state, content) => {
   const target = state.pendingAction?.chapterNumber ?? parsed.chapterNumber;
   const relative = join('reviews/chapter', chapterReviewFileName(target));
   const path = await saveJsonFile(state.projectPath, relative, parsed);
+  if (state.pendingAction?.mode === 'side_track') {
+    return {
+      savedPaths: [path],
+      fileEntries: { [`review-chapter-${target}`]: relative },
+      next: { kind: 'sideTrackReturn' },
+    };
+  }
+
+  if (parsed.status === 'clean') {
+    return {
+      savedPaths: [path],
+      fileEntries: { [`review-chapter-${target}`]: relative },
+      next: { kind: 'linear', nextStep: 'memory_card' },
+    };
+  }
+
   return {
     savedPaths: [path],
     fileEntries: { [`review-chapter-${target}`]: relative },
-    next: { kind: 'sideTrackReturn' },
+    next: {
+      kind: 'linear',
+      nextStep: 'chapter_revision',
+      statePatch: {
+        pendingAction: {
+          step: 'chapter_revision',
+          mode: 'gate',
+          chapterNumber: target,
+        },
+      },
+    },
   };
 };

@@ -9,7 +9,8 @@ export type PromptPurpose =
   | 'continuity_review'
   | 'chapter_review'
   | 'chapter_revision'
-  | 'cross_chapter_review';
+  | 'cross_chapter_review'
+  | 'story_bible_amend';
 
 export interface PromptBuildInput {
   state: AgentState;

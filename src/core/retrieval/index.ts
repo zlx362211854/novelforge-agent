@@ -95,6 +95,16 @@ export async function indexMemoryCard(projectPath: string, chapterNumber: number
   await upsert(projectPath, (existing) => existing === id, chunkMemoryCard(chapterNumber, card));
 }
 
+export async function removeChapterFromIndex(projectPath: string, chapterNumber: number): Promise<void> {
+  const prefix = `chapter:${chapterNumber}:`;
+  await upsert(projectPath, (id) => id.startsWith(prefix), []);
+}
+
+export async function removeMemoryCardFromIndex(projectPath: string, chapterNumber: number): Promise<void> {
+  const id = `memory:${chapterNumber}`;
+  await upsert(projectPath, (existing) => existing === id, []);
+}
+
 export async function retrieve(projectPath: string, query: string, options: RetrieveOptions = {}): Promise<RetrievalHit[]> {
   if (!query.trim()) return [];
   const bundle = await loadBundle(projectPath);

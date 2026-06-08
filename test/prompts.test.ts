@@ -63,6 +63,23 @@ test('English prompt branch returns English instructions', () => {
   assert.doesNotMatch(result.prompt, /长篇小说总架构师/);
 });
 
+test('architecture prompt requests volume pacing boards', () => {
+  const result = buildPromptForStep({ state: baseState('architecture') });
+
+  assert.match(result.prompt, /volumePacing/);
+  assert.match(result.prompt, /keyTurns/);
+});
+
+test('chapter review prompt includes mandatory acceptance gate', () => {
+  const result = buildPromptForStep({ state: baseState('chapter_review') });
+
+  assert.match(result.prompt, /强制章节验收门槛/);
+  assert.match(result.prompt, /requiredBeats/);
+  assert.match(result.prompt, /narrativeProgress/);
+  assert.match(result.prompt, /endingHook/);
+  assert.match(result.prompt, /repetition/);
+});
+
 test('locale prompt packs are independently selectable', () => {
   const zh = zhCNPromptPack.buildPromptForStep({ state: baseState('novel_metadata') });
   const en = enUSPromptPack.buildPromptForStep({

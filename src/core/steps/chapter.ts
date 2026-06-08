@@ -12,6 +12,16 @@ export const chapterHandler: StepHandler = async (state, content) => {
   return {
     savedPaths: [path],
     fileEntries: { [`chapter-${state.currentChapter}`]: relative },
-    next: { kind: 'linear', nextStep: 'memory_card' },
+    next: {
+      kind: 'linear',
+      nextStep: 'chapter_review',
+      statePatch: {
+        pendingAction: {
+          step: 'chapter_review',
+          mode: 'gate',
+          chapterNumber: state.currentChapter,
+        },
+      },
+    },
   };
 };

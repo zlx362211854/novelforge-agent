@@ -10,6 +10,23 @@ import {
   submitStepResult,
 } from '../src/core/index.js';
 
+function cleanReview(chapterNumber: number): string {
+  return JSON.stringify({
+    chapterNumber,
+    status: 'clean',
+    acceptance: {
+      requiredBeats: { status: 'pass', evidence: 'required beats are present', missingBeats: [] },
+      narrativeProgress: { status: 'pass', evidence: 'story advances' },
+      characterProgress: { status: 'pass', evidence: 'character state is confirmed' },
+      foreshadowProgress: { status: 'pass', evidence: 'threads remain coherent' },
+      storyBibleConsistency: { status: 'pass', evidence: 'no conflict' },
+      endingHook: { status: 'pass', evidence: 'hook present' },
+      repetition: { status: 'pass', evidence: 'no repeated beat' },
+    },
+    issues: [],
+  });
+}
+
 test('listProjects returns empty array when workspace has no novels dir', async () => {
   const root = await mkdtemp(join(tmpdir(), 'novel-disc-'));
   try {
@@ -109,6 +126,7 @@ test('getProjectStatus surfaces openThreads from memory cards', async () => {
       }),
     });
     await submitStepResult({ projectPath: state.projectPath, step: 'chapter', content: '# t\n\n内容。' });
+    await submitStepResult({ projectPath: state.projectPath, step: 'chapter_review', content: cleanReview(1) });
     await submitStepResult({
       projectPath: state.projectPath,
       step: 'memory_card',

@@ -15,6 +15,23 @@ import {
 } from '../src/core/index.js';
 import { tokenize } from '../src/core/retrieval/tokenizer.js';
 
+function cleanReview(chapterNumber: number): string {
+  return JSON.stringify({
+    chapterNumber,
+    status: 'clean',
+    acceptance: {
+      requiredBeats: { status: 'pass', evidence: 'required beats are present', missingBeats: [] },
+      narrativeProgress: { status: 'pass', evidence: 'the chapter advances the story' },
+      characterProgress: { status: 'pass', evidence: 'character state is advanced or confirmed' },
+      foreshadowProgress: { status: 'pass', evidence: 'threads remain coherent' },
+      storyBibleConsistency: { status: 'pass', evidence: 'no story bible conflict' },
+      endingHook: { status: 'pass', evidence: 'ending hook is present' },
+      repetition: { status: 'pass', evidence: 'no repeated prior beat' },
+    },
+    issues: [],
+  });
+}
+
 test('CJK tokenizer emits unigrams and overlapping bigrams', () => {
   const tokens = tokenize('陈青云走');
   assert.deepEqual(tokens, ['陈', '陈青', '青', '青云', '云', '云走', '走']);
@@ -173,6 +190,7 @@ test('chapter_generation context auto-injects retrieval snippets from prior chap
       step: 'chapter',
       content: '# 玉佩觉醒\n\n陈青云在祖屋醒来，昆吾剑灵第一次开口。',
     });
+    await submitStepResult({ projectPath: state.projectPath, step: 'chapter_review', content: cleanReview(1) });
     await submitStepResult({
       projectPath: state.projectPath,
       step: 'memory_card',
@@ -191,6 +209,7 @@ test('chapter_generation context auto-injects retrieval snippets from prior chap
       step: 'chapter',
       content: '# 初下山门\n\n陈青云持昆吾剑跨过山门，剑鸣回荡。',
     });
+    await submitStepResult({ projectPath: state.projectPath, step: 'chapter_review', content: cleanReview(2) });
     await submitStepResult({
       projectPath: state.projectPath,
       step: 'memory_card',

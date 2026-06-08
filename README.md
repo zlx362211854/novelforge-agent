@@ -2,7 +2,7 @@
 
 A local-first long-form novel workflow engine for any MCP host (Claude Code, Codex CLI, Cursor, …) or any CLI shell.
 
-**The host's LLM writes the prose. This package does everything else** — it manages a 9-step state machine, returns the exact instruction and packed context the host should follow next, validates returned content against zod schemas, persists Markdown + JSON to a project directory, archives chapter versions on revision, and provides BM25 lexical retrieval over every word the project has ever produced.
+**The host's LLM writes the prose. This package does everything else** — it manages a gated long-form state machine, returns the exact instruction and packed context the host should follow next, validates returned content against zod schemas, persists Markdown + JSON to a project directory, archives chapter versions on revision, and provides BM25 lexical retrieval over every word the project has ever produced.
 
 No external API. No LLM dependency. No vendor lock-in.
 
@@ -57,15 +57,17 @@ The installer is **idempotent and safe**: it never overwrites an existing entry 
 |-------|------|---------------------|----------------------|
 | Setup | `novel_metadata` | Output JSON: title, genre, premise, cast | `novel.json` |
 |  | `story_bible` | Output Markdown: characters, world rules, plot threads | `story-bible.md` |
-|  | `architecture` | Output JSON: full / volume / chapter outlines | `architecture/{full.md, volumes.json, chapters.json}` |
+|  | `architecture` | Output JSON: full / volume / pacing / chapter outlines | `architecture/{full.md, volumes.json, volume-pacing.json, chapters.json}` |
 | Loop  | `chapter` | Write chapter N Markdown | `chapters/NNN.md` |
-|  | `memory_card` | Extract chapter N memory JSON | `memory/chapter-NNN.json` |
+|  | `chapter_review` | Enforce the chapter acceptance gate: required beats, plot/character/thread progress, story-bible consistency, ending hook, repetition check | `reviews/chapter/chapter-NNN.json` |
+|  | `chapter_revision` | If review finds issues, rewrite the chapter; previous version is archived | `chapters/.versions/NNN.<ts>.md` |
+|  | `memory_card` | After a clean review, extract chapter N memory JSON and update character/thread state | `memory/chapter-NNN.json`, `characters.json`, `threads.json` |
 | Wrap  | `continuity_review` | Audit chapters 1..N for conflicts | `reviews/continuity-S-E.json` |
 | Side-track | `chapter_review` | Single-chapter editorial review | `reviews/chapter/chapter-NNN.json` |
 |  | `chapter_revision` | Rewrite a chapter; previous version auto-archived | `chapters/.versions/NNN.<ts>.md` |
 |  | `cross_chapter_review` | Cross-chapter continuity audit | `reviews/cross/cross-S-E.json` |
 
-Each chapter / bible / memory write also feeds a per-project BM25 index (`.index/`) so the agent can hand the host semantically relevant snippets when later chapters are generated, or answer ad-hoc `retrieve` queries from the host.
+Each chapter / bible / memory write also feeds a per-project BM25 index (`.index/`) so the agent can hand the host semantically relevant snippets when later chapters are generated, or answer ad-hoc `retrieve` queries from the host. Chapter generation context also includes the independent character state table (`characters.json`) and current volume pacing board (`architecture/volume-pacing.json`) when available.
 
 ## Install
 
@@ -165,7 +167,7 @@ NOVELFORGE_WORKSPACE = "/absolute/path/where/projects/should/live"
 
 `list_projects` finds every project under `NOVELFORGE_WORKSPACE/novels/`, sorted newest first. The host should call it before anything else when a session opens; pick the desired `projectPath` from the result, then `get_project_status` for a one-screen briefing, then `get_next_step` to resume.
 
-## Tool reference (13 MCP tools)
+## Tool reference
 
 ### Project lifecycle
 - **`start_novel_project`** `(prompt, language?, outputDir?, targetChapters?)` — create a new project under `<workspaceRoot>/<outputDir>/<slug>-<rand6>/` and return the first step's instruction.
@@ -185,6 +187,15 @@ NOVELFORGE_WORKSPACE = "/absolute/path/where/projects/should/live"
 - **`cross_chapter_review`** `(projectPath, start?, end?)` — switch into a cross-chapter audit side-track over the given range (defaults to all generated chapters).
 - **`save_chapter`** `(projectPath, chapterNumber, title, content)` — write a chapter Markdown file directly, without going through the state machine.
 
+### Project operations
+- **`amend_story_bible`** `(projectPath, content, reason?)` — replace `story-bible.md`, archive the previous version, and rebuild the bible index.
+- **`list_bible_versions`** `(projectPath)` — list archived story-bible versions.
+- **`list_threads`** `(projectPath, status?)` — list foreshadow threads collected from memory cards.
+- **`update_thread`** `(projectPath, id, patch)` — update one foreshadow thread.
+- **`fork_project`** `(sourceProjectPath, label?)` — copy a project to a sibling fork with a new project id.
+- **`delete_chapter`** `(projectPath, chapterNumber)` — remove a chapter, its memory, reviews, archived versions, and index entries.
+- **`redo_step`** `(projectPath, step, chapterNumber?)` — roll the workflow back to regenerate an artifact.
+
 ### Retrieval
 - **`retrieve`** `(projectPath, query, topK?, types?, chapterStart?, chapterEnd?)` — BM25-style lexical retrieval over indexed paragraphs (chapters), bible H2 sections, and memory cards. Supports CJK + Latin queries via a built-in CJK bigram tokenizer; no external embedding model.
 
@@ -196,10 +207,12 @@ A project on disk:
 novels/<slug>-<rand6>/
 ├── agent-state.json              # workflow state (currentStep, currentChapter, files map, …)
 ├── novel.json                    # metadata (NovelMetadataSchema)
+├── characters.json               # independent character state table
 ├── story-bible.md
 ├── architecture/
 │   ├── full.md
 │   ├── volumes.json
+│   ├── volume-pacing.json
 │   └── chapters.json
 ├── chapters/
 │   ├── 001.md
@@ -226,17 +239,26 @@ The whole directory is self-contained — copy it, share it, delete it.
 ```
 novel_metadata → story_bible → architecture → chapter
                                               ↓
-                                          memory_card
+                                         chapter_review
                                               ↓
-                              ┌───────────────┴───────────────┐
-                  (more chapters)                       (all done)
-                              ↓                               ↓
-                          chapter                    continuity_review
-                                                              ↓
-                                                          complete
+                                   ┌──────────┴──────────┐
+                                 clean             issues_found
+                                   ↓                    ↓
+                              memory_card       chapter_revision
+                                   ↓                    ↓
+                     ┌─────────────┴─────────────┐      │
+             (more chapters)                (all done)   │
+                     ↓                            ↓       │
+                  chapter                continuity_review│
+                                                  ↓       │
+                                              complete    │
+                                                       (back to
+                                                    chapter_review)
 ```
 
-Side-track steps (`chapter_review`, `chapter_revision`, `cross_chapter_review`) can be triggered at any moment via the semantic-action tools. When the side-track completes via `submit_step_result`, the workflow returns to whatever `currentStep` it was on before the side-track started.
+`chapter_review` is both a manual side-track and the automatic chapter acceptance gate. In the normal chapter loop, the workflow cannot advance to `memory_card` until the review status is `clean`. If the review returns `issues_found`, the workflow forces `chapter_revision`, then returns to `chapter_review` for another pass.
+
+Side-track steps (`chapter_review`, `chapter_revision`, `cross_chapter_review`) can still be triggered at any moment via the semantic-action tools. When a manual side-track completes via `submit_step_result`, the workflow returns to whatever `currentStep` it was on before the side-track started.
 
 The full transition map lives in the `next:` declaration of each handler under [src/core/steps/](src/core/steps/). To change the workflow, edit those files — that is the entire state machine, there is no graph engine.
 
@@ -249,6 +271,7 @@ src/
 │   ├── schemas.ts                # zod schemas (the only validator)
 │   ├── projectStore.ts           # filesystem persistence
 │   ├── projectDiscovery.ts       # list / status
+│   ├── characterStore.ts         # independent character state table
 │   ├── prompts/                  # per-language prompt packs (zh-CN, en-US)
 │   ├── steps/                    # one file per WorkflowStep handler
 │   ├── retrieval/                # BM25 index + CJK tokenizer + chunker
