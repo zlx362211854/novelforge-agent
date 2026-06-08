@@ -12,6 +12,7 @@ export interface ProjectSummary {
   currentStep: WorkflowStep;
   currentChapter: number;
   targetChapters: number;
+  plannedTotalChapters: number;
   completedSteps: number;
   chaptersWritten: number;
   updatedAt: string;
@@ -57,6 +58,7 @@ async function summarizeOne(projectPath: string): Promise<ProjectSummary | undef
     currentStep: state.currentStep,
     currentChapter: state.currentChapter,
     targetChapters: state.targetChapters,
+    plannedTotalChapters: state.plannedTotalChapters ?? state.targetChapters,
     completedSteps: state.completedSteps.length,
     chaptersWritten: countChapters(state),
     updatedAt: state.updatedAt,

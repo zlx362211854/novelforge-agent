@@ -54,9 +54,17 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd()):
     const prompt = valueAfter(argv, '--prompt') || '';
     if (!prompt.trim()) throw new Error('Missing --prompt');
     const language = parseLanguage(valueAfter(argv, '--language') || 'zh-CN');
-    const chapters = Number(valueAfter(argv, '--chapters') || 3);
+    const chapters = Number(valueAfter(argv, '--chapters') || 5);
+    const totalChapters = Number(valueAfter(argv, '--total-chapters') || 12);
     const outputDir = valueAfter(argv, '--output') || 'novels';
-    const result = await createProject({ workspaceRoot: cwd, prompt, language, outputDir, targetChapters: chapters });
+    const result = await createProject({
+      workspaceRoot: cwd,
+      prompt,
+      language,
+      outputDir,
+      targetChapters: chapters,
+      plannedTotalChapters: totalChapters,
+    });
     const next = await getNextStep(result.state.projectPath);
     console.log(JSON.stringify({ state: result.state, next }, null, 2));
     return;
@@ -217,7 +225,7 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd()):
   if (command === 'redo') {
     if (!projectPath) throw new Error('Missing projectPath');
     const step = valueAfter(argv, '--step') as
-      | 'novel_metadata' | 'story_bible' | 'architecture' | 'chapter' | 'memory_card' | 'continuity_review'
+      | 'novel_metadata' | 'story_bible' | 'style_guide' | 'architecture' | 'chapter' | 'memory_card' | 'continuity_review'
       | undefined;
     if (!step) throw new Error('Missing --step');
     const chapter = valueAfter(argv, '--chapter');

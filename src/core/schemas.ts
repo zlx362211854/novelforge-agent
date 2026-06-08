@@ -15,6 +15,23 @@ export const NovelMetadataSchema = z.object({
   coreCast: z.array(CoreCastMemberSchema).min(1),
 });
 
+export const StyleGuideSchema = z.object({
+  narrativeVoice: z.string().min(1),
+  pacing: z.string().min(1),
+  diction: z.string().min(1),
+  dialogueRules: z.array(z.string().min(1)).min(1),
+  prohibitedPatterns: z.array(z.string().min(1)).min(1),
+  proseRhythm: z.object({
+    sentenceRhythm: z.string().min(1),
+    paragraphing: z.string().min(1),
+    interiorityMode: z.string().min(1),
+    emphasisBudget: z.string().min(1),
+    antiPatterns: z.array(z.string().min(1)).min(1),
+  }),
+  sampleParagraph: z.string().min(1),
+  consistencyChecks: z.array(z.string().min(1)).min(1),
+});
+
 export const VolumeArchitectureSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
@@ -57,6 +74,13 @@ export const ChapterArchitectureSchema = z.object({
 export const ArchitecturePayloadSchema = z.object({
   full: z.string().min(1),
   volumes: z.array(VolumeArchitectureSchema).min(1),
+  volumePacing: z.array(VolumePacingBoardSchema).optional(),
+  chapters: z.array(ChapterArchitectureSchema).min(1),
+});
+
+export const ArchitectureExtensionPayloadSchema = z.object({
+  fullUpdate: z.string().min(1).optional(),
+  volumes: z.array(VolumeArchitectureSchema).optional(),
   volumePacing: z.array(VolumePacingBoardSchema).optional(),
   chapters: z.array(ChapterArchitectureSchema).min(1),
 });
@@ -181,6 +205,7 @@ export const ChapterAcceptanceGateSchema = z.object({
   characterProgress: ChapterAcceptanceCheckSchema,
   foreshadowProgress: ChapterAcceptanceCheckSchema,
   storyBibleConsistency: ChapterAcceptanceCheckSchema,
+  proseRhythm: ChapterAcceptanceCheckSchema,
   endingHook: ChapterAcceptanceCheckSchema,
   repetition: ChapterAcceptanceCheckSchema,
 });

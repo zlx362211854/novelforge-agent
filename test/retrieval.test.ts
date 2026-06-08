@@ -25,11 +25,35 @@ function cleanReview(chapterNumber: number): string {
       characterProgress: { status: 'pass', evidence: 'character state is advanced or confirmed' },
       foreshadowProgress: { status: 'pass', evidence: 'threads remain coherent' },
       storyBibleConsistency: { status: 'pass', evidence: 'no story bible conflict' },
+      proseRhythm: { status: 'pass', evidence: 'prose rhythm follows the style guide' },
       endingHook: { status: 'pass', evidence: 'ending hook is present' },
       repetition: { status: 'pass', evidence: 'no repeated prior beat' },
     },
     issues: [],
   });
+}
+
+function styleGuide(): string {
+  return JSON.stringify({
+    narrativeVoice: '第三人称有限视角，古典克制',
+    pacing: '场景推进清晰，章末保留悬念',
+    diction: '修仙词汇适量，句式稳定',
+    dialogueRules: ['对白符合修士身份，避免说明书式发言'],
+    prohibitedPatterns: ['不要现代网络梗', '不要设定堆砌', '不要口吻漂移'],
+    proseRhythm: {
+      sentenceRhythm: '短句只用于转折、危险或情绪落点，常规叙述以自然句群推进',
+      paragraphing: '避免连续单句短段，段落应形成完整叙事单元',
+      interiorityMode: '心理活动通过动作、迟疑和感官反应折射，避免频繁直白解释',
+      emphasisBudget: '重复句、破折号和孤立短句少量使用',
+      antiPatterns: ['连续 3 个以上单句短段', '用大量短句模拟紧张感', '每个动作后立刻解释心理', '重复同一句式制造伪节奏'],
+    },
+    sampleParagraph: '暮色压低山门，陈青云握住玉佩，听见昆吾剑在心湖深处发出第一声轻鸣。',
+    consistencyChecks: ['叙事声音稳定', '术语不过量', '对白身份一致'],
+  });
+}
+
+async function submitStyleGuide(projectPath: string): Promise<void> {
+  await submitStepResult({ projectPath, step: 'style_guide', content: styleGuide() });
 }
 
 test('CJK tokenizer emits unigrams and overlapping bigrams', () => {
@@ -171,6 +195,7 @@ test('chapter_generation context auto-injects retrieval snippets from prior chap
       step: 'story_bible',
       content: '# 故事圣经\n\n## 核心人物\n- 陈青云：少年剑修。\n',
     });
+    await submitStyleGuide(state.projectPath);
     await submitStepResult({
       projectPath: state.projectPath,
       step: 'architecture',

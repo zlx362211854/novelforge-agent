@@ -30,11 +30,35 @@ function cleanReview(chapterNumber: number): string {
       characterProgress: { status: 'pass', evidence: 'the protagonist becomes a sword cultivator' },
       foreshadowProgress: { status: 'pass', evidence: 'new sword-spirit threads are coherent' },
       storyBibleConsistency: { status: 'pass', evidence: 'no story bible conflict' },
+      proseRhythm: { status: 'pass', evidence: 'prose rhythm follows the style guide' },
       endingHook: { status: 'pass', evidence: 'the promise of the 九霄之路 is a hook' },
       repetition: { status: 'pass', evidence: 'no repeated prior beat' },
     },
     issues: [],
   });
+}
+
+function styleGuide(): string {
+  return JSON.stringify({
+    narrativeVoice: '第三人称有限视角，古典克制',
+    pacing: '开章入冲突，章末留仙途承诺',
+    diction: '修仙术语克制使用，避免堆砌',
+    dialogueRules: ['少年对白短促坚定', '剑灵对白含蓄留白'],
+    prohibitedPatterns: ['不要现代网络梗', '不要设定堆砌', '不要空洞抒情'],
+    proseRhythm: {
+      sentenceRhythm: '短句只用于转折、危险或情绪落点，常规叙述以自然句群推进',
+      paragraphing: '避免连续单句短段，段落应形成完整叙事单元',
+      interiorityMode: '心理活动通过动作、迟疑和感官反应折射，避免频繁直白解释',
+      emphasisBudget: '重复句、破折号和孤立短句少量使用',
+      antiPatterns: ['连续 3 个以上单句短段', '用大量短句模拟紧张感', '每个动作后立刻解释心理', '重复同一句式制造伪节奏'],
+    },
+    sampleParagraph: '山风掠过祖屋残檐，玉佩在陈青云掌心微微发热，像有一线沉睡千年的剑光正要醒来。',
+    consistencyChecks: ['古典语感稳定', '修仙术语不过量', '对白符合身份'],
+  });
+}
+
+async function submitStyleGuide(projectPath: string): Promise<void> {
+  await submitStepResult({ projectPath, step: 'style_guide', content: styleGuide() });
 }
 
 async function seedThroughChapter1(workspaceRoot: string): Promise<string> {
@@ -62,6 +86,7 @@ async function seedThroughChapter1(workspaceRoot: string): Promise<string> {
     step: 'story_bible',
     content: '# 故事圣经\n\n## 核心人物\n- 陈青云：少年剑修。\n',
   });
+  await submitStyleGuide(state.projectPath);
   await submitStepResult({
     projectPath: state.projectPath,
     step: 'architecture',

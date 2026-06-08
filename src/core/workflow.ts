@@ -37,6 +37,8 @@ export interface RequestSideTrackInput {
 type ContextRecipe = (state: AgentState) => Omit<BuildContextInput, 'projectPath'>;
 
 const CONTEXT_RECIPES: Partial<Record<WorkflowStep, ContextRecipe>> = {
+  style_guide: () => ({ purpose: 'style_guide' }),
+  architecture_extension: (s) => ({ purpose: 'architecture_extension', chapterNumber: s.currentChapter }),
   chapter: (s) => ({ purpose: 'chapter_generation', chapterNumber: s.currentChapter }),
   memory_card: (s) => ({ purpose: 'memory_extraction', chapterNumber: s.currentChapter }),
   continuity_review: () => ({ purpose: 'continuity_review' }),

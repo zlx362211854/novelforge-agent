@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { MemoryCardSchema } from '../schemas.js';
 import { saveJsonFile } from '../projectStore.js';
@@ -7,6 +8,19 @@ import { ingestMemoryCardThreads } from '../threadStore.js';
 import { applyCharacterUpdates } from '../characterStore.js';
 import { StepHandler, parseJson } from './types.js';
 
+async function maxPlannedChapter(projectPath: string): Promise<number> {
+  try {
+    const raw = await readFile(join(projectPath, 'architecture/chapters.json'), 'utf8');
+    const chapters = JSON.parse(raw) as Array<{ chapterNumber?: number }>;
+    return chapters.reduce((max, chapter) => {
+      const value = Number(chapter.chapterNumber);
+      return Number.isFinite(value) && value > max ? value : max;
+    }, 0);
+  } catch {
+    return 0;
+  }
+}
+
 export const memoryCardHandler: StepHandler = async (state, content) => {
   const parsed = MemoryCardSchema.parse(parseJson(content));
   const relative = join('memory', memoryFileName(state.currentChapter));
@@ -15,12 +29,20 @@ export const memoryCardHandler: StepHandler = async (state, content) => {
   await ingestMemoryCardThreads(state.projectPath, state.currentChapter, parsed.threadActions);
   await applyCharacterUpdates(state.projectPath, state.currentChapter, parsed.characterUpdates);
   const nextChapter = state.currentChapter + 1;
+  const plannedTotalChapters = state.plannedTotalChapters ?? state.targetChapters;
+  const plannedMax = await maxPlannedChapter(state.projectPath);
+  const nextStep =
+    nextChapter > plannedTotalChapters
+      ? 'continuity_review'
+      : nextChapter > plannedMax
+        ? 'architecture_extension'
+        : 'chapter';
   return {
     savedPaths: [path],
     fileEntries: { [`memory-${state.currentChapter}`]: relative },
     next: {
       kind: 'linear',
-      nextStep: nextChapter > state.targetChapters ? 'continuity_review' : 'chapter',
+      nextStep,
       statePatch: { currentChapter: nextChapter },
     },
   };

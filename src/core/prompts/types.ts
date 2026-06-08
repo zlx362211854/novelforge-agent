@@ -3,7 +3,9 @@ import { AgentState } from '../types.js';
 export type PromptPurpose =
   | 'novel_metadata'
   | 'story_bible'
+  | 'style_guide'
   | 'architecture'
+  | 'architecture_extension'
   | 'chapter'
   | 'memory_card'
   | 'continuity_review'

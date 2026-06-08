@@ -10,6 +10,7 @@ export interface CreateProjectInput {
   language?: AgentState['language'];
   outputDir?: string;
   targetChapters?: number;
+  plannedTotalChapters?: number;
 }
 
 export interface CreateProjectResult {
@@ -61,7 +62,12 @@ export async function archiveStoryBible(projectPath: string, versionRelative: st
 export async function createProject(input: CreateProjectInput): Promise<CreateProjectResult> {
   const workspaceRoot = resolve(input.workspaceRoot);
   const baseDir = input.outputDir || 'novels';
-  const targetChapters = Math.max(1, Math.floor(Number(input.targetChapters || 3)));
+  const hasExplicitTargetChapters = input.targetChapters !== undefined;
+  const targetChapters = Math.max(1, Math.floor(Number(input.targetChapters || 5)));
+  const plannedTotalChapters = Math.max(
+    targetChapters,
+    Math.floor(Number(input.plannedTotalChapters ?? (hasExplicitTargetChapters ? targetChapters : 12)))
+  );
   const baseSlug = makeProjectSlug(input.prompt.slice(0, 48));
   const suffix = randomBytes(3).toString('hex');
   const slug = `${baseSlug}-${suffix}`;
@@ -76,6 +82,7 @@ export async function createProject(input: CreateProjectInput): Promise<CreatePr
     initialPrompt: input.prompt,
     language: input.language || 'zh-CN',
     targetChapters,
+    plannedTotalChapters,
     currentStep: 'novel_metadata',
     currentChapter: 1,
     completedSteps: [],

@@ -28,6 +28,22 @@ test('buildContext returns chapter generation context without dumping every file
       coreCast: [{ name: '许南', role: 'protagonist', description: '调查员' }],
     });
     await saveMarkdownFile(state.projectPath, 'story-bible.md', '# 故事圣经\n雾会吞掉记忆。\n');
+    await saveJsonFile(state.projectPath, 'style-guide.json', {
+      narrativeVoice: '第三人称有限视角，冷峻克制',
+      pacing: '开章快速进入调查场景',
+      diction: '悬疑词汇克制',
+      dialogueRules: ['对白短促，带潜台词'],
+      prohibitedPatterns: ['不要现代网络梗', '不要解释型旁白', '不要总结腔'],
+      proseRhythm: {
+        sentenceRhythm: '短句只用于转折、危险或情绪落点，常规叙述以自然句群推进',
+        paragraphing: '避免连续单句短段，段落应形成完整叙事单元',
+        interiorityMode: '心理活动通过动作、迟疑和感官反应折射，避免频繁直白解释',
+        emphasisBudget: '重复句、破折号和孤立短句少量使用',
+        antiPatterns: ['连续 3 个以上单句短段', '用大量短句模拟紧张感', '每个动作后立刻解释心理', '重复同一句式制造伪节奏'],
+      },
+      sampleParagraph: '雾从街角压过来，许南合上记录本，像合上一段不肯安静的失踪时间。',
+      consistencyChecks: ['视角稳定', '对白克制', '无禁用模式'],
+    });
     await saveJsonFile(state.projectPath, 'architecture/chapters.json', [
       { chapterNumber: 1, title: '雾起', volumeId: 'v1', summary: '失踪案出现', requiredBeats: ['发现线索'] },
     ]);
@@ -66,6 +82,8 @@ test('buildContext returns chapter generation context without dumping every file
     assert.match(context, /雾城/);
     assert.match(context, /雾起/);
     assert.match(context, /Character State Table/);
+    assert.match(context, /Style Guide/);
+    assert.match(context, /冷峻克制/);
     assert.match(context, /Volume Pacing Board/);
     assert.match(context, /雾会吞掉记忆/);
     assert.doesNotMatch(context, /agent-state/);

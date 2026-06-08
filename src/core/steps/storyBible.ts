@@ -9,6 +9,6 @@ export const storyBibleHandler: StepHandler = async (state, content) => {
   return {
     savedPaths: [path],
     fileEntries: { storyBible: 'story-bible.md' },
-    next: { kind: 'linear', nextStep: 'architecture' },
+    next: { kind: 'linear', nextStep: 'style_guide' },
   };
 };

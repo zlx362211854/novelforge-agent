@@ -11,6 +11,7 @@ function baseState(currentStep: AgentState['currentStep']): AgentState {
     initialPrompt: '写一本赛博修仙小说',
     language: 'zh-CN',
     targetChapters: 3,
+    plannedTotalChapters: 12,
     currentStep,
     currentChapter: 2,
     completedSteps: [],
@@ -68,6 +69,28 @@ test('architecture prompt requests volume pacing boards', () => {
 
   assert.match(result.prompt, /volumePacing/);
   assert.match(result.prompt, /keyTurns/);
+  assert.match(result.prompt, /全本目标约 12 章/);
+});
+
+test('style guide prompt creates enforceable prose constraints', () => {
+  const result = buildPromptForStep({ state: baseState('style_guide'), context: '## Novel Metadata\n{"genre":"修仙"}' });
+
+  assert.equal(result.expectedFormat, 'JSON matching StyleGuideSchema');
+  assert.match(result.prompt, /文风主编/);
+  assert.match(result.prompt, /narrativeVoice/);
+  assert.match(result.prompt, /prohibitedPatterns/);
+  assert.match(result.prompt, /proseRhythm/);
+  assert.match(result.prompt, /连续 3 个以上单句短段/);
+  assert.match(result.prompt, /sampleParagraph/);
+});
+
+test('architecture extension prompt starts from current chapter and uses whole-book target', () => {
+  const result = buildPromptForStep({ state: baseState('architecture_extension') });
+
+  assert.equal(result.expectedFormat, 'JSON matching ArchitectureExtensionPayloadSchema');
+  assert.match(result.prompt, /从第 2 章开始/);
+  assert.match(result.prompt, /全本目标到第 12 章结束/);
+  assert.match(result.prompt, /chapters\[0\]\.chapterNumber 必须等于 2/);
 });
 
 test('chapter review prompt includes mandatory acceptance gate', () => {
@@ -78,6 +101,9 @@ test('chapter review prompt includes mandatory acceptance gate', () => {
   assert.match(result.prompt, /narrativeProgress/);
   assert.match(result.prompt, /endingHook/);
   assert.match(result.prompt, /repetition/);
+  assert.match(result.prompt, /Style Guide/);
+  assert.match(result.prompt, /proseRhythm/);
+  assert.match(result.prompt, /连续单句短段/);
 });
 
 test('locale prompt packs are independently selectable', () => {

@@ -164,6 +164,7 @@ export interface RedoStepResult {
 const STEP_FILE_KEYS: Partial<Record<WorkflowStep, string[]>> = {
   novel_metadata: ['novel'],
   story_bible: ['storyBible'],
+  style_guide: ['styleGuide'],
   architecture: ['architecture'],
   continuity_review: ['continuityReview'],
 };
@@ -171,6 +172,7 @@ const STEP_FILE_KEYS: Partial<Record<WorkflowStep, string[]>> = {
 const STEP_FILE_PATHS: Partial<Record<WorkflowStep, string[]>> = {
   novel_metadata: ['novel.json'],
   story_bible: ['story-bible.md'],
+  style_guide: ['style-guide.json'],
   architecture: ['architecture/full.md', 'architecture/volumes.json', 'architecture/chapters.json'],
 };
 
@@ -198,7 +200,13 @@ export async function redoStep(input: RedoStepInput): Promise<RedoStepResult> {
     state.currentChapter = chapter;
     state.currentStep = input.step;
     state.pendingAction = undefined;
-  } else if (input.step === 'novel_metadata' || input.step === 'story_bible' || input.step === 'architecture' || input.step === 'continuity_review') {
+  } else if (
+    input.step === 'novel_metadata'
+    || input.step === 'story_bible'
+    || input.step === 'style_guide'
+    || input.step === 'architecture'
+    || input.step === 'continuity_review'
+  ) {
     const paths = STEP_FILE_PATHS[input.step] ?? [];
     for (const p of paths) {
       if (await tryUnlink(join(state.projectPath, p))) removed.push(p);

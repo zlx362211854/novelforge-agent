@@ -1,7 +1,9 @@
 export type WorkflowStep =
   | 'novel_metadata'
   | 'story_bible'
+  | 'style_guide'
   | 'architecture'
+  | 'architecture_extension'
   | 'chapter'
   | 'memory_card'
   | 'continuity_review'
@@ -44,6 +46,7 @@ export interface ChapterAcceptanceGate {
   characterProgress: ChapterAcceptanceCheck;
   foreshadowProgress: ChapterAcceptanceCheck;
   storyBibleConsistency: ChapterAcceptanceCheck;
+  proseRhythm: ChapterAcceptanceCheck;
   endingHook: ChapterAcceptanceCheck;
   repetition: ChapterAcceptanceCheck;
 }
@@ -82,6 +85,23 @@ export interface NovelMetadata {
   coreCast: CoreCastMember[];
 }
 
+export interface StyleGuide {
+  narrativeVoice: string;
+  pacing: string;
+  diction: string;
+  dialogueRules: string[];
+  prohibitedPatterns: string[];
+  proseRhythm: {
+    sentenceRhythm: string;
+    paragraphing: string;
+    interiorityMode: string;
+    emphasisBudget: string;
+    antiPatterns: string[];
+  };
+  sampleParagraph: string;
+  consistencyChecks: string[];
+}
+
 export interface VolumeArchitecture {
   id: string;
   title: string;
@@ -117,6 +137,13 @@ export interface ChapterArchitecture {
 export interface ArchitecturePayload {
   full: string;
   volumes: VolumeArchitecture[];
+  volumePacing?: VolumePacingBoard[];
+  chapters: ChapterArchitecture[];
+}
+
+export interface ArchitectureExtensionPayload {
+  fullUpdate?: string;
+  volumes?: VolumeArchitecture[];
   volumePacing?: VolumePacingBoard[];
   chapters: ChapterArchitecture[];
 }
@@ -196,7 +223,12 @@ export interface AgentState {
   projectPath: string;
   initialPrompt: string;
   language: 'zh-CN' | 'en-US';
+  /**
+   * Number of chapters to plan in each architecture batch.
+   * The whole-book target lives in plannedTotalChapters.
+   */
   targetChapters: number;
+  plannedTotalChapters: number;
   currentStep: WorkflowStep;
   currentChapter: number;
   completedSteps: WorkflowStep[];

@@ -79,6 +79,56 @@ Rules:
     };
 }
 
+function buildStyleGuidePrompt(input: PromptBuildInput): BuiltPrompt {
+return {
+      purpose: 'style_guide',
+      expectedFormat: 'JSON matching StyleGuideSchema',
+      prompt: `You are the style editor for a long-form novel. From the user prompt, metadata, and story bible, create a style guide that chapter writing and review can enforce over the whole project.
+
+## User Prompt
+${input.state.initialPrompt}
+
+${input.context ? `## Existing Context\n${input.context}\n` : ''}## Output Requirements
+Output valid JSON only, in this shape:
+{
+  "narrativeVoice": "Narration person, POV distance, narrator texture, emotional temperature",
+  "pacing": "Rules for openings, transitions, conflict movement, and chapter-end hooks",
+  "diction": "Word choice, sentence density, genre terminology boundaries",
+  "dialogueRules": [
+    "Rules for core character dialogue length, tone, subtext, and forms of address"
+  ],
+  "prohibitedPatterns": [
+    "Patterns to avoid: modern memes, explanatory narration, lore dumping, voice drift, etc."
+  ],
+  "proseRhythm": {
+    "sentenceRhythm": "How short, medium, and long sentences should be used; short sentences should serve turns, danger, or emotional landings, not default narration",
+    "paragraphing": "Paragraphs should form complete narrative units; avoid consecutive one-sentence paragraphs and line breaks used as fake rhythm",
+    "interiorityMode": "How interiority should be refracted through action, hesitation, and sensory response; avoid frequent direct explanation of thoughts",
+    "emphasisBudget": "Budget for repetition, dashes, isolated short sentences, and other emphasis tools",
+    "antiPatterns": [
+      "3 or more consecutive one-sentence short paragraphs",
+      "many short sentences used to simulate tension",
+      "explaining psychology immediately after every action",
+      "repeating the same sentence pattern to create fake rhythm"
+    ]
+  },
+  "sampleParagraph": "A 120-250 word target-style sample. Do not turn it into plot outline.",
+  "consistencyChecks": [
+    "Concrete checks future chapter reviews should use to detect style drift"
+  ]
+}
+
+Rules:
+- Match genre, premise, character identities, and reader expectations.
+- Do not rely on abstract adjectives only; every field must guide actual prose.
+- proseRhythm must not be fixed word-count rules; describe reviewable rhythm principles and anti-patterns.
+- sampleParagraph demonstrates prose texture only. Do not reveal future plot.
+- prohibitedPatterns must contain at least 3 entries; consistencyChecks must contain at least 3 entries.
+- proseRhythm.antiPatterns must contain at least 4 entries.
+${strictJsonOutputRules()}`,
+    };
+}
+
 function buildArchitecturePrompt(input: PromptBuildInput): BuiltPrompt {
 return {
       purpose: 'architecture',
@@ -89,7 +139,7 @@ return {
 ${input.state.initialPrompt}
 
 ## Goals
-- Generate at least ${input.state.targetChapters} chapter architectures for this first run.
+- Whole-book target is about ${input.state.plannedTotalChapters ?? input.state.targetChapters} chapters; generate only the first ${input.state.targetChapters} chapter architectures in this first batch.
 - The full-book architecture should define the long-term main line and ending direction.
 - Volume architecture should define phase conflict, climax, and volume-end hooks.
 - Chapter architecture must cover only what should happen in that chapter and must not reveal later concrete events early.
@@ -131,10 +181,77 @@ Output valid JSON only, in this shape:
 
 Rules:
 - chapters.length must be at least ${input.state.targetChapters}.
+- chapters do not need to cover the whole book; when writing reaches the boundary, the workflow will request architecture_extension.
 - chapterNumber must start at 1 and increase contiguously.
 - volumeId must reference an id from volumes.
 - volumePacing must provide one pacing board for every volume.
 - requiredBeats must include at least one concrete, actionable beat.
+${strictJsonOutputRules()}`,
+    };
+}
+
+function buildArchitectureExtensionPrompt(input: PromptBuildInput): BuiltPrompt {
+  const start = input.state.currentChapter;
+  const total = input.state.plannedTotalChapters ?? input.state.targetChapters;
+  const end = Math.min(total, start + input.state.targetChapters - 1);
+  return {
+    purpose: 'architecture_extension',
+    expectedFormat: 'JSON matching ArchitectureExtensionPayloadSchema',
+    prompt: `You are the chief architect for a long-form novel. The manuscript has reached the edge of the existing chapter plan; extend the architecture from current continuity.
+
+## Extension Range
+- Start at chapter ${start}.
+- This batch should plan through chapter ${end} at most.
+- The whole-book target ends at chapter ${total}.
+
+## Extension Principles
+- Do not rewrite existing chapter architecture; append only new chapter architecture.
+- New chapters must follow recent memory, the character state table, active foreshadow threads, and volume pacing boards.
+- If the next chapters enter a new volume, add volumes and volumePacing. If they remain in an existing volume, you may provide an updated pacing board for that volume.
+- If the full-book direction needs adjustment because of written material, include fullUpdate. fullUpdate must be a complete replacement for architecture/full.md, not a change note.
+- Chapter architecture must cover only what should happen in that chapter and must not reveal later concrete events early.
+
+${input.context ? `## Existing Context\n${input.context}\n` : ''}## Output Requirements
+Output valid JSON only, in this shape:
+{
+  "fullUpdate": "optional complete updated full-book architecture",
+  "volumes": [
+    {
+      "id": "v2",
+      "title": "New or updated volume title",
+      "summary": "Volume goal, conflict, climax, and end hook",
+      "order": 2
+    }
+  ],
+  "volumePacing": [
+    {
+      "volumeId": "v2",
+      "start": "Volume starting state",
+      "promise": "Volume promise",
+      "keyTurns": ["Key turn 1", "Key turn 2"],
+      "midpoint": "Midpoint turn",
+      "climax": "Volume climax",
+      "payoffs": ["Planned payoffs"],
+      "lingeringMysteries": ["Lingering mysteries"]
+    }
+  ],
+  "chapters": [
+    {
+      "chapterNumber": ${start},
+      "title": "Chapter title",
+      "volumeId": "v1",
+      "summary": "Chapter plot summary",
+      "requiredBeats": ["Required beat 1"]
+    }
+  ]
+}
+
+Rules:
+- chapters[0].chapterNumber must equal ${start}.
+- chapterNumber must increase contiguously and must not exceed ${total}.
+- chapters.length should be ${end - start + 1} unless the book has reached its ending.
+- requiredBeats must include at least one concrete, actionable beat.
+- volumeId must reference an existing volume id or a volume id supplied in this response.
 ${strictJsonOutputRules()}`,
     };
 }
@@ -148,7 +265,7 @@ function buildChapterPrompt(input: PromptBuildInput): BuiltPrompt {
     prompt: `You are a professional long-form fiction writer. Write chapter ${ch} directly.
 
 ## Priority Order
-1. Strictly follow the current chapter architecture, user additions, story bible hard constraints, and previous-chapter continuity.
+1. Strictly follow the current chapter architecture, user additions, story bible hard constraints, style guide, and previous-chapter continuity.
 2. Use relevant memory, prior text evidence, and active foreshadow threads.
 3. Treat full-book and volume plans as distant planning context only. Do not write concrete future events early.
 
@@ -163,6 +280,8 @@ ${isFirstChapter
 - The chapter must end on a clear hook: cliffhanger, mystery, emotional resonance, reveal, or volume close — per the chapter architecture endHookFocus. Default: cliffhanger.
 
 ## Style
+- Enforce the Style Guide from context. Treat sampleParagraph as prose texture only; do not copy its content.
+- Enforce Style Guide.proseRhythm: short sentences, one-line paragraphs, repeated sentences, and dashes are emphasis tools, not default narration. Ordinary narration should form natural sentence groups.
 - Match the novel's genre, world, character identities, and emotional tone.
 - Natural, stable, readable language; prioritize narrative progress, character work, and emotional accumulation.
 - Dialogue fits each character's identity, relationship, and situation.
@@ -258,7 +377,7 @@ ${strictJsonOutputRules()}`,
 }
 
 function buildContinuityReviewPrompt(input: PromptBuildInput): BuiltPrompt {
-const end = Math.max(input.state.targetChapters, input.state.currentChapter - 1);
+const end = Math.max(input.state.plannedTotalChapters ?? input.state.targetChapters, input.state.currentChapter - 1);
 return {
       purpose: 'continuity_review',
       expectedFormat: 'JSON matching ContinuityReviewSchema',
@@ -308,6 +427,8 @@ ${input.context ? `## Review Context\n${input.context}\n` : ''}## Review Focus
 - Whether every requiredBeat is fulfilled; missing beats must appear in acceptance.requiredBeats.missingBeats.
 - Whether this chapter advances the main line, character state, or active foreshadow threads. If it is static, at least one of narrativeProgress/characterProgress/foreshadowProgress must fail.
 - Whether it violates the story bible, character state table, volume pacing board, or prior memory.
+- Whether it violates the Style Guide: narrative voice, sentence density, genre diction, dialogue rules, or prohibited patterns.
+- Whether it violates Style Guide.proseRhythm: excessive short-sentence density, consecutive one-sentence paragraphs, fake rhythm through line breaks, overly direct interior explanation, or repeated sentence patterns.
 - Whether the ending has a clear hook that matches the chapter architecture endHookFocus.
 - Whether it repeats prior chapter beats, conflict patterns, reveals, or dialogue functions.
 - Character voice, motivation, and state vs the story bible and prior memory.
@@ -342,6 +463,10 @@ Output valid JSON only, in this shape:
     "storyBibleConsistency": {
       "status": "pass | fail",
       "evidence": "Whether it matches the story bible, character state table, and world rules"
+    },
+    "proseRhythm": {
+      "status": "pass | fail",
+      "evidence": "Whether it follows Style Guide.proseRhythm; explain whether short sentences, one-line paragraphs, repetition, and interior explanation are controlled"
     },
     "endingHook": {
       "status": "pass | fail",
@@ -440,8 +565,12 @@ function buildPromptForStep(input: PromptBuildInput): BuiltPrompt {
       return buildMetadataPrompt(input);
     case 'story_bible':
       return buildStoryBiblePrompt(input);
+    case 'style_guide':
+      return buildStyleGuidePrompt(input);
     case 'architecture':
       return buildArchitecturePrompt(input);
+    case 'architecture_extension':
+      return buildArchitectureExtensionPrompt(input);
     case 'chapter':
       return buildChapterPrompt(input);
     case 'memory_card':

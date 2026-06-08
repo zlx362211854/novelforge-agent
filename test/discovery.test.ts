@@ -20,11 +20,35 @@ function cleanReview(chapterNumber: number): string {
       characterProgress: { status: 'pass', evidence: 'character state is confirmed' },
       foreshadowProgress: { status: 'pass', evidence: 'threads remain coherent' },
       storyBibleConsistency: { status: 'pass', evidence: 'no conflict' },
+      proseRhythm: { status: 'pass', evidence: 'prose rhythm follows the style guide' },
       endingHook: { status: 'pass', evidence: 'hook present' },
       repetition: { status: 'pass', evidence: 'no repeated beat' },
     },
     issues: [],
   });
+}
+
+function styleGuide(): string {
+  return JSON.stringify({
+    narrativeVoice: '第三人称有限视角，稳定克制',
+    pacing: '场景推进清晰，章末留钩子',
+    diction: '题材词汇适量，避免堆砌',
+    dialogueRules: ['对白符合人物身份'],
+    prohibitedPatterns: ['不要现代网络梗', '不要解释型旁白', '不要总结腔'],
+    proseRhythm: {
+      sentenceRhythm: '短句只用于转折、危险或情绪落点，常规叙述以自然句群推进',
+      paragraphing: '避免连续单句短段，段落应形成完整叙事单元',
+      interiorityMode: '心理活动通过动作、迟疑和感官反应折射，避免频繁直白解释',
+      emphasisBudget: '重复句、破折号和孤立短句少量使用',
+      antiPatterns: ['连续 3 个以上单句短段', '用大量短句模拟紧张感', '每个动作后立刻解释心理', '重复同一句式制造伪节奏'],
+    },
+    sampleParagraph: '雨线落在空城边缘，周临停下脚步，像听见某段被烧毁的证词又在灰里开口。',
+    consistencyChecks: ['视角稳定', '对白身份一致', '无禁用模式'],
+  });
+}
+
+async function submitStyleGuide(projectPath: string): Promise<void> {
+  await submitStepResult({ projectPath, step: 'style_guide', content: styleGuide() });
 }
 
 test('listProjects returns empty array when workspace has no novels dir', async () => {
@@ -88,7 +112,7 @@ test('getProjectStatus reports progress and pickups latest review', async () => 
 
     const status = await getProjectStatus(state.projectPath);
     assert.equal(status.title, '灰烬证词');
-    assert.equal(status.currentStep, 'architecture');
+    assert.equal(status.currentStep, 'style_guide');
     assert.equal(status.completedSteps, 2);
     assert.equal(status.chaptersWritten, 0);
     assert.equal(status.done, false);
@@ -116,6 +140,7 @@ test('getProjectStatus surfaces openThreads from memory cards', async () => {
       }),
     });
     await submitStepResult({ projectPath: state.projectPath, step: 'story_bible', content: '# bible\n' });
+    await submitStyleGuide(state.projectPath);
     await submitStepResult({
       projectPath: state.projectPath,
       step: 'architecture',

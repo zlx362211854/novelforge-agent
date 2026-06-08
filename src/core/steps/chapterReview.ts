@@ -6,6 +6,7 @@ import { StepHandler, parseJson } from './types.js';
 
 export const chapterReviewHandler: StepHandler = async (state, content) => {
   const parsed = ChapterReviewSchema.parse(parseJson(content));
+  const hasFailedAcceptance = Object.values(parsed.acceptance).some((check) => check.status === 'fail');
   const target = state.pendingAction?.chapterNumber ?? parsed.chapterNumber;
   const relative = join('reviews/chapter', chapterReviewFileName(target));
   const path = await saveJsonFile(state.projectPath, relative, parsed);
@@ -17,7 +18,7 @@ export const chapterReviewHandler: StepHandler = async (state, content) => {
     };
   }
 
-  if (parsed.status === 'clean') {
+  if (parsed.status === 'clean' && !hasFailedAcceptance) {
     return {
       savedPaths: [path],
       fileEntries: { [`review-chapter-${target}`]: relative },

@@ -79,6 +79,56 @@ ${input.context ? `## 已有上下文\n${input.context}\n` : ''}## 输出结构
   };
 }
 
+function buildStyleGuidePrompt(input: PromptBuildInput): BuiltPrompt {
+return {
+    purpose: 'style_guide',
+    expectedFormat: 'JSON matching StyleGuideSchema',
+    prompt: `你是一名长篇小说文风主编。请根据用户提示、metadata 和故事圣经，生成可被每章写作与审稿长期执行的风格圣经。
+
+## 用户提示词
+${input.state.initialPrompt}
+
+${input.context ? `## 已有上下文\n${input.context}\n` : ''}## 输出要求
+请只输出合法 JSON，格式如下：
+{
+  "narrativeVoice": "叙事人称、视角距离、旁白气质、情绪温度",
+  "pacing": "开章、转场、冲突推进、章末钩子的节奏规则",
+  "diction": "词汇选择、句式密度、题材术语使用边界",
+  "dialogueRules": [
+    "核心人物对白的长度、语气、潜台词、称谓规则"
+  ],
+  "prohibitedPatterns": [
+    "禁止出现的现代梗、解释型旁白、设定堆砌、口吻漂移等"
+  ],
+  "proseRhythm": {
+    "sentenceRhythm": "短句、中句、长句的使用原则；短句应服务转折、危险、情绪落点，而不是默认叙述单位",
+    "paragraphing": "段落应形成完整叙事单元；避免连续单句成段、靠频繁换行制造伪节奏",
+    "interiorityMode": "心理活动如何通过动作、迟疑、感官反应折射；避免频繁直接解释人物想法",
+    "emphasisBudget": "重复句、破折号、孤立短句等强调资源的使用预算",
+    "antiPatterns": [
+      "连续 3 个以上单句短段",
+      "用大量短句模拟紧张感",
+      "每个动作后立刻解释心理",
+      "重复同一句式制造伪节奏"
+    ]
+  },
+  "sampleParagraph": "一段 120-250 字的目标风格示例，不要写成剧情大纲",
+  "consistencyChecks": [
+    "后续章节审稿时用于判断风格是否跑偏的具体检查项"
+  ]
+}
+
+要求：
+- 风格必须匹配 genre、premise、人物身份和目标读者预期。
+- 不要只写抽象形容词；每个字段都要能指导实际行文。
+- proseRhythm 不要写成固定字数规则；要描述可审稿的节奏原则和反模式。
+- sampleParagraph 只展示语言质感，不要提前泄露后续剧情。
+- prohibitedPatterns 至少 3 条，consistencyChecks 至少 3 条。
+- proseRhythm.antiPatterns 至少 4 条。
+${strictJsonOutputRules()}`,
+  };
+}
+
 function buildArchitecturePrompt(input: PromptBuildInput): BuiltPrompt {
 return {
     purpose: 'architecture',
@@ -89,7 +139,7 @@ return {
 ${input.state.initialPrompt}
 
 ## 目标
-- 本次至少生成 ${input.state.targetChapters} 个章架构。
+- 全本目标约 ${input.state.plannedTotalChapters ?? input.state.targetChapters} 章；本次只生成首批 ${input.state.targetChapters} 个章架构。
 - 全本架构负责长期主线和结局方向。
 - 卷架构负责阶段冲突、高潮和卷尾钩子。
 - 章架构必须只覆盖本章应发生的内容，不要提前泄露后续具体事件。
@@ -131,10 +181,77 @@ ${input.context ? `## 已有上下文\n${input.context}\n` : ''}## 输出要求
 
 要求：
 - chapters.length 必须大于等于 ${input.state.targetChapters}。
+- chapters 不需要一次覆盖全本；后续写到边界时会进入 architecture_extension 续规划。
 - chapterNumber 从 1 开始连续递增。
 - volumeId 必须引用 volumes 中存在的 id。
 - volumePacing 必须为每个 volume 提供节奏板。
 - requiredBeats 至少 1 条，且必须具体可执行。
+${strictJsonOutputRules()}`,
+  };
+}
+
+function buildArchitectureExtensionPrompt(input: PromptBuildInput): BuiltPrompt {
+  const start = input.state.currentChapter;
+  const total = input.state.plannedTotalChapters ?? input.state.targetChapters;
+  const end = Math.min(total, start + input.state.targetChapters - 1);
+  return {
+    purpose: 'architecture_extension',
+    expectedFormat: 'JSON matching ArchitectureExtensionPayloadSchema',
+    prompt: `你是一名长篇小说总架构师。当前已写到既有章纲边界，请基于已有内容续写后续章架构。
+
+## 续规划范围
+- 从第 ${start} 章开始。
+- 本批最多规划到第 ${end} 章。
+- 全本目标到第 ${total} 章结束。
+
+## 续规划原则
+- 不要改写已经存在的章节架构；只追加新的 chapter architecture。
+- 新增章节必须承接最近记忆、角色状态表、活跃伏笔和卷级节奏板。
+- 如果后续章节进入新卷，可以新增 volumes 和 volumePacing；如果仍在旧卷，可以补充/更新该卷节奏板。
+- 如果全本方向因已写内容需要微调，可以输出 fullUpdate；fullUpdate 必须是可覆盖 architecture/full.md 的完整更新版，而不是变更说明。
+- 章架构必须只覆盖本章应发生的内容，不要提前泄露更后面的具体事件。
+
+${input.context ? `## 已有上下文\n${input.context}\n` : ''}## 输出要求
+请只输出合法 JSON，格式如下：
+{
+  "fullUpdate": "可选：完整更新后的全本架构 Markdown/文本",
+  "volumes": [
+    {
+      "id": "v2",
+      "title": "新增或更新卷标题",
+      "summary": "本卷目标、冲突、高潮和卷尾钩子",
+      "order": 2
+    }
+  ],
+  "volumePacing": [
+    {
+      "volumeId": "v2",
+      "start": "本卷起点",
+      "promise": "本卷承诺",
+      "keyTurns": ["关键转折1", "关键转折2"],
+      "midpoint": "中点转折",
+      "climax": "本卷高潮",
+      "payoffs": ["计划回收点"],
+      "lingeringMysteries": ["遗留悬念"]
+    }
+  ],
+  "chapters": [
+    {
+      "chapterNumber": ${start},
+      "title": "章标题",
+      "volumeId": "v1",
+      "summary": "本章剧情摘要",
+      "requiredBeats": ["必须完成的情节点1"]
+    }
+  ]
+}
+
+要求：
+- chapters[0].chapterNumber 必须等于 ${start}。
+- chapterNumber 必须连续递增，且不能超过 ${total}。
+- chapters.length 建议为 ${end - start + 1}，除非已经到全本结尾。
+- requiredBeats 至少 1 条，且必须具体可执行。
+- volumeId 必须引用已有或本次新增 volumes 中存在的 id。
 ${strictJsonOutputRules()}`,
   };
 }
@@ -148,7 +265,7 @@ function buildChapterPrompt(input: PromptBuildInput): BuiltPrompt {
     prompt: `你是一位擅长创作长篇网络小说的职业作者。请直接完成第 ${ch} 章正文。
 
 ## 执行优先级
-1. 先严格遵守"本章架构、用户补充要求、故事圣经硬约束、上一章承接"。
+1. 先严格遵守"本章架构、用户补充要求、故事圣经硬约束、风格圣经、上一章承接"。
 2. 再参考"历史相关记忆、历史原文证据、活跃伏笔"保证一致性。
 3. 最后才参考"全本/本卷远场规划"，且不得提前写出尚未发生的情节。
 
@@ -163,6 +280,8 @@ ${isFirstChapter
 - 章末必须有清晰的"钩子"：可以是悬念、反转、剧情承诺、情绪余韵或卷末高潮——按本章架构 endHookFocus 字段决定。如果未指定，默认用悬念。
 
 ## 风格
+- 严格执行上下文中的 Style Guide；sampleParagraph 只作为语言质感参考，不要复写其内容。
+- 严格执行 Style Guide.proseRhythm：短句、单句段、重复句、破折号是强调资源，不是默认叙述单位；常规叙述要形成自然句群。
 - 文风必须与本书题材、世界观、人物身份、情感基调一致。
 - 语言自然、稳定、可读，优先服务叙事推进、人物塑造和情绪积累。
 - 对话符合人物身份、关系和处境；重要情绪通过动作、神态、节奏、潜台词体现。
@@ -257,7 +376,7 @@ ${strictJsonOutputRules()}`,
 }
 
 function buildContinuityReviewPrompt(input: PromptBuildInput): BuiltPrompt {
-const end = Math.max(input.state.targetChapters, input.state.currentChapter - 1);
+const end = Math.max(input.state.plannedTotalChapters ?? input.state.targetChapters, input.state.currentChapter - 1);
 return {
     purpose: 'continuity_review',
     expectedFormat: 'JSON matching ContinuityReviewSchema',
@@ -307,6 +426,8 @@ ${input.context ? `## 审阅上下文\n${input.context}\n` : ''}## 审阅重点
 - requiredBeats 是否全部完成；缺失项必须写入 acceptance.requiredBeats.missingBeats。
 - 本章是否推进主线、人物状态或活跃伏笔；如果完全原地踏步，narrativeProgress/characterProgress/foreshadowProgress 至少一项必须 fail。
 - 是否违反故事圣经、角色状态表、卷级节奏板或历史记忆。
+- 是否违反 Style Guide：叙事声音、句式密度、题材词汇、对白规则和禁用模式。
+- 是否违反 Style Guide.proseRhythm：短句密度过高、连续单句短段、靠换行制造伪节奏、心理解释过直白、重复同一句式。
 - 章末是否有清晰钩子，且符合本章 endHookFocus。
 - 是否重复之前章节已经完成的桥段、冲突结构、信息揭示或对话功能。
 - 人物声音、动机、状态是否符合故事圣经与历史记忆。
@@ -341,6 +462,10 @@ ${input.context ? `## 审阅上下文\n${input.context}\n` : ''}## 审阅重点
     "storyBibleConsistency": {
       "status": "pass | fail",
       "evidence": "是否符合故事圣经、角色状态表和世界规则"
+    },
+    "proseRhythm": {
+      "status": "pass | fail",
+      "evidence": "是否符合 Style Guide.proseRhythm；说明短句/单句段/重复句/心理解释是否被合理控制"
     },
     "endingHook": {
       "status": "pass | fail",
@@ -439,8 +564,12 @@ function buildPromptForStep(input: PromptBuildInput): BuiltPrompt {
       return buildMetadataPrompt(input);
     case 'story_bible':
       return buildStoryBiblePrompt(input);
+    case 'style_guide':
+      return buildStyleGuidePrompt(input);
     case 'architecture':
       return buildArchitecturePrompt(input);
+    case 'architecture_extension':
+      return buildArchitectureExtensionPrompt(input);
     case 'chapter':
       return buildChapterPrompt(input);
     case 'memory_card':

@@ -57,6 +57,7 @@ The installer is **idempotent and safe**: it never overwrites an existing entry 
 |-------|------|---------------------|----------------------|
 | Setup | `novel_metadata` | Output JSON: title, genre, premise, cast | `novel.json` |
 |  | `story_bible` | Output Markdown: characters, world rules, plot threads | `story-bible.md` |
+|  | `style_guide` | Output JSON: narrative voice, pacing, diction, dialogue rules, prohibited patterns, prose rhythm, sample prose | `style-guide.json` |
 |  | `architecture` | Output JSON: full / volume / pacing / chapter outlines | `architecture/{full.md, volumes.json, volume-pacing.json, chapters.json}` |
 | Loop  | `chapter` | Write chapter N Markdown | `chapters/NNN.md` |
 |  | `chapter_review` | Enforce the chapter acceptance gate: required beats, plot/character/thread progress, story-bible consistency, ending hook, repetition check | `reviews/chapter/chapter-NNN.json` |
@@ -67,7 +68,7 @@ The installer is **idempotent and safe**: it never overwrites an existing entry 
 |  | `chapter_revision` | Rewrite a chapter; previous version auto-archived | `chapters/.versions/NNN.<ts>.md` |
 |  | `cross_chapter_review` | Cross-chapter continuity audit | `reviews/cross/cross-S-E.json` |
 
-Each chapter / bible / memory write also feeds a per-project BM25 index (`.index/`) so the agent can hand the host semantically relevant snippets when later chapters are generated, or answer ad-hoc `retrieve` queries from the host. Chapter generation context also includes the independent character state table (`characters.json`) and current volume pacing board (`architecture/volume-pacing.json`) when available.
+Each chapter / bible / memory write also feeds a per-project BM25 index (`.index/`) so the agent can hand the host semantically relevant snippets when later chapters are generated, or answer ad-hoc `retrieve` queries from the host. Chapter generation context also includes the style guide (`style-guide.json`), independent character state table (`characters.json`), and current volume pacing board (`architecture/volume-pacing.json`) when available. The style guide includes `proseRhythm`, which checks rhythm anti-patterns such as excessive short-sentence density, consecutive one-sentence paragraphs, fake rhythm through line breaks, overly direct interior explanation, and repeated sentence patterns.
 
 ## Install
 
@@ -170,7 +171,7 @@ NOVELFORGE_WORKSPACE = "/absolute/path/where/projects/should/live"
 ## Tool reference
 
 ### Project lifecycle
-- **`start_novel_project`** `(prompt, language?, outputDir?, targetChapters?)` — create a new project under `<workspaceRoot>/<outputDir>/<slug>-<rand6>/` and return the first step's instruction.
+- **`start_novel_project`** `(prompt, language?, outputDir?, targetChapters?, plannedTotalChapters?)` — create a new project under `<workspaceRoot>/<outputDir>/<slug>-<rand6>/` and return the first step's instruction. `targetChapters` is the per-batch planning size; MCP defaults to 5. `plannedTotalChapters` is the whole-book target; MCP defaults to 12.
 - **`list_projects`** `(outputDir?)` — list all projects in the workspace, newest first.
 - **`get_project_status`** `(projectPath)` — compact summary: current step, chapters written, open threads, latest review verdict.
 - **`get_next_step`** `(projectPath)` — return the prompt + packed context for whatever the workflow expects next.
@@ -179,13 +180,15 @@ NOVELFORGE_WORKSPACE = "/absolute/path/where/projects/should/live"
 - **`submit_step_result`** `(projectPath, step, content)` — validate `content` against the step's zod schema, persist it, advance the state machine. On failure the bad submission is written to `.agent-recovery/failed-*.txt` and the state does not advance.
 - **`get_context`** `(projectPath, purpose, chapterNumber?, start?, end?)` — build purpose-specific context without changing state. Useful when the host wants to read what the agent *would* have packed.
 
+Dynamic planning is built into the state machine: after each accepted chapter and memory card, the agent checks `plannedTotalChapters` and the highest chapter covered by `architecture/chapters.json`. If the next chapter is still inside the whole-book target but not yet planned, the next step becomes `architecture_extension`; after the host submits that JSON, generation resumes at `chapter`.
+
 ### Semantic actions (verb-style; safe to call any time)
 - **`generate_chapter`** `(projectPath, chapterNumber)` — return generation context for a specific chapter.
 - **`extract_memory_card`** `(projectPath, chapterNumber)` — return memory-extraction context for a specific chapter.
 - **`review_chapter`** `(projectPath, chapterNumber)` — switch into a single-chapter editorial review side-track and return its prompt. After `submit_step_result(step="chapter_review")`, the workflow resumes its prior step automatically.
 - **`revise_chapter`** `(projectPath, chapterNumber, feedback?)` — switch into a chapter-revision side-track. Submitting `chapter_revision` content auto-archives the previous version under `chapters/.versions/`.
 - **`cross_chapter_review`** `(projectPath, start?, end?)` — switch into a cross-chapter audit side-track over the given range (defaults to all generated chapters).
-- **`save_chapter`** `(projectPath, chapterNumber, title, content)` — write a chapter Markdown file directly, without going through the state machine.
+- **`save_chapter`** `(projectPath, chapterNumber, title, content)` — submit the current chapter through the state machine; it requires `currentStep="chapter"` and then advances to mandatory `chapter_review`.
 
 ### Project operations
 - **`amend_story_bible`** `(projectPath, content, reason?)` — replace `story-bible.md`, archive the previous version, and rebuild the bible index.
@@ -209,6 +212,7 @@ novels/<slug>-<rand6>/
 ├── novel.json                    # metadata (NovelMetadataSchema)
 ├── characters.json               # independent character state table
 ├── story-bible.md
+├── style-guide.json              # enforceable prose style guide
 ├── architecture/
 │   ├── full.md
 │   ├── volumes.json
@@ -237,15 +241,15 @@ The whole directory is self-contained — copy it, share it, delete it.
 ## How the workflow advances
 
 ```
-novel_metadata → story_bible → architecture → chapter
-                                              ↓
-                                         chapter_review
-                                              ↓
-                                   ┌──────────┴──────────┐
-                                 clean             issues_found
-                                   ↓                    ↓
-                              memory_card       chapter_revision
-                                   ↓                    ↓
+novel_metadata → story_bible → style_guide → architecture → chapter
+                                                            ↓
+                                                       chapter_review
+                                                            ↓
+                                                 ┌──────────┴──────────┐
+                                               clean             issues_found
+                                                 ↓                    ↓
+                                            memory_card       chapter_revision
+                                                 ↓                    ↓
                      ┌─────────────┴─────────────┐      │
              (more chapters)                (all done)   │
                      ↓                            ↓       │

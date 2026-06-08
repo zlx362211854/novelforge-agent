@@ -20,6 +20,7 @@ function cleanReview(chapterNumber: number): string {
       characterProgress: { status: 'pass', evidence: 'the protagonist state is established' },
       foreshadowProgress: { status: 'pass', evidence: 'the open thread remains coherent' },
       storyBibleConsistency: { status: 'pass', evidence: 'no story bible conflict' },
+      proseRhythm: { status: 'pass', evidence: 'prose rhythm follows the style guide' },
       endingHook: { status: 'pass', evidence: 'the ending leaves a hook' },
       repetition: { status: 'pass', evidence: 'no repeated prior beat' },
     },
@@ -37,6 +38,7 @@ function failedReview(chapterNumber: number): string {
       characterProgress: { status: 'fail', evidence: 'the protagonist state is unchanged' },
       foreshadowProgress: { status: 'pass', evidence: 'no active foreshadow is contradicted' },
       storyBibleConsistency: { status: 'pass', evidence: 'no story bible conflict' },
+      proseRhythm: { status: 'pass', evidence: 'prose rhythm follows the style guide' },
       endingHook: { status: 'fail', evidence: 'the ending has no hook' },
       repetition: { status: 'pass', evidence: 'no repeated prior beat' },
     },
@@ -48,6 +50,29 @@ function failedReview(chapterNumber: number): string {
       suggestion: '补足抵达车站和章末钩子',
     }],
   });
+}
+
+function styleGuide(): string {
+  return JSON.stringify({
+    narrativeVoice: '第三人称有限视角，细腻克制',
+    pacing: '开章承接明确，章末留情绪钩子',
+    diction: '现实质感，句式不过度华丽',
+    dialogueRules: ['对白自然，避免说明式台词'],
+    prohibitedPatterns: ['不要现代网络梗', '不要空洞抒情', '不要总结腔'],
+    proseRhythm: {
+      sentenceRhythm: '短句只用于转折、危险或情绪落点，常规叙述以自然句群推进',
+      paragraphing: '避免连续单句短段，段落应形成完整叙事单元',
+      interiorityMode: '心理活动通过动作、迟疑和感官反应折射，避免频繁直白解释',
+      emphasisBudget: '重复句、破折号和孤立短句少量使用',
+      antiPatterns: ['连续 3 个以上单句短段', '用大量短句模拟紧张感', '每个动作后立刻解释心理', '重复同一句式制造伪节奏'],
+    },
+    sampleParagraph: '旧车站的灯忽明忽暗，陈序站在雨里，忽然觉得故乡从来没有真正放过他。',
+    consistencyChecks: ['现实语感稳定', '对白自然', '章末钩子存在'],
+  });
+}
+
+async function submitStyleGuide(projectPath: string): Promise<void> {
+  await submitStepResult({ projectPath, step: 'style_guide', content: styleGuide() });
 }
 
 async function seedProjectToChapter1(workspaceRoot: string) {
@@ -71,6 +96,7 @@ async function seedProjectToChapter1(workspaceRoot: string) {
     }),
   });
   await submitStepResult({ projectPath: state.projectPath, step: 'story_bible', content: '# 故事圣经\n' });
+  await submitStyleGuide(state.projectPath);
   await submitStepResult({
     projectPath: state.projectPath,
     step: 'architecture',
@@ -129,6 +155,7 @@ test('chapter_review side-track saves report and resumes original step', async (
           characterProgress: { status: 'fail', evidence: '人物状态变化不足' },
           foreshadowProgress: { status: 'pass', evidence: '没有破坏伏笔' },
           storyBibleConsistency: { status: 'pass', evidence: '不冲突' },
+          proseRhythm: { status: 'pass', evidence: 'prose rhythm follows the style guide' },
           endingHook: { status: 'fail', evidence: '章末没有钩子' },
           repetition: { status: 'pass', evidence: '无重复桥段' },
         },
@@ -177,6 +204,7 @@ test('automatic chapter gate forces revision until clean review', async () => {
       }),
     });
     await submitStepResult({ projectPath: state.projectPath, step: 'story_bible', content: '# 故事圣经\n' });
+    await submitStyleGuide(state.projectPath);
     await submitStepResult({
       projectPath: state.projectPath,
       step: 'architecture',

@@ -1,9 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { resolve } from 'node:path';
 import {
   amendStoryBible,
+  assertProjectPath,
   buildContext,
-  chapterFileName,
   createProject,
   deleteChapter,
   forkProject,
@@ -11,14 +12,16 @@ import {
   getProjectStatus,
   listProjects,
   listStoryBibleVersions,
+  loadState,
   loadThreads,
   redoStep,
   requestSideTrack,
   retrieve,
-  saveMarkdownFile,
   submitStepResult,
   updateThread,
 } from '../core/index.js';
+
+const MCP_SERVER_VERSION = '0.2.0';
 
 export interface CreateNovelAgentServerOptions {
   workspaceRoot: string;
@@ -34,9 +37,19 @@ function textResult(value: unknown) {
 }
 
 export function createNovelAgentServer(options: CreateNovelAgentServerOptions): McpServer {
+  function checkedProjectPath(projectPath: string): string {
+    assertProjectPath(options.workspaceRoot, projectPath);
+    return projectPath;
+  }
+
+  function checkedOutputDir(outputDir: string): string {
+    assertProjectPath(options.workspaceRoot, resolve(options.workspaceRoot, outputDir));
+    return outputDir;
+  }
+
   const server = new McpServer({
     name: 'novelforge-agent',
-    version: '0.2.0',
+    version: MCP_SERVER_VERSION,
   });
 
   server.tool(
@@ -46,15 +59,17 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       prompt: z.string().min(1),
       language: z.enum(['zh-CN', 'en-US']).default('zh-CN'),
       outputDir: z.string().default('novels'),
-      targetChapters: z.number().int().positive().default(3),
+      targetChapters: z.number().int().positive().default(5),
+      plannedTotalChapters: z.number().int().positive().default(12),
     },
-    async ({ prompt, language, outputDir, targetChapters }) => {
+    async ({ prompt, language, outputDir, targetChapters, plannedTotalChapters }) => {
       const result = await createProject({
         workspaceRoot: options.workspaceRoot,
         prompt,
         language,
         outputDir,
         targetChapters,
+        plannedTotalChapters,
       });
       return textResult({ state: result.state, next: await getNextStep(result.state.projectPath) });
     }
@@ -66,21 +81,22 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     {
       outputDir: z.string().default('novels'),
     },
-    async ({ outputDir }) => textResult(await listProjects({ workspaceRoot: options.workspaceRoot, outputDir }))
+    async ({ outputDir }) =>
+      textResult(await listProjects({ workspaceRoot: options.workspaceRoot, outputDir: checkedOutputDir(outputDir) }))
   );
 
   server.tool(
     'get_project_status',
     'Return a compact, one-screen summary of a project: current step, chapters written, open threads, latest review verdict, completion state.',
     { projectPath: z.string().min(1) },
-    async ({ projectPath }) => textResult(await getProjectStatus(projectPath))
+    async ({ projectPath }) => textResult(await getProjectStatus(checkedProjectPath(projectPath)))
   );
 
   server.tool(
     'get_next_step',
     'Return the next required generation step for a novel project.',
     { projectPath: z.string().min(1) },
-    async ({ projectPath }) => textResult(await getNextStep(projectPath))
+    async ({ projectPath }) => textResult(await getNextStep(checkedProjectPath(projectPath)))
   );
 
   server.tool(
@@ -91,7 +107,9 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       step: z.enum([
         'novel_metadata',
         'story_bible',
+        'style_guide',
         'architecture',
+        'architecture_extension',
         'chapter',
         'memory_card',
         'continuity_review',
@@ -102,7 +120,8 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       ]),
       content: z.string(),
     },
-    async ({ projectPath, step, content }) => textResult(await submitStepResult({ projectPath, step, content }))
+    async ({ projectPath, step, content }) =>
+      textResult(await submitStepResult({ projectPath: checkedProjectPath(projectPath), step, content }))
   );
 
   server.tool(
@@ -112,6 +131,8 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       projectPath: z.string().min(1),
       purpose: z.enum([
         'chapter_generation',
+        'style_guide',
+        'architecture_extension',
         'memory_extraction',
         'continuity_review',
         'revision',
@@ -124,7 +145,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     },
     async ({ projectPath, purpose, chapterNumber, start, end }) =>
       textResult(await buildContext({
-        projectPath,
+        projectPath: checkedProjectPath(projectPath),
         purpose,
         chapterNumber,
         range: start && end ? { start, end } : undefined,
@@ -133,7 +154,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
 
   server.tool(
     'save_chapter',
-    'Save a generated chapter directly as Markdown.',
+    'Submit a generated chapter Markdown draft through the workflow state machine. This requires currentStep="chapter" and advances to chapter_review.',
     {
       projectPath: z.string().min(1),
       chapterNumber: z.number().int().positive(),
@@ -141,9 +162,18 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       content: z.string().min(1),
     },
     async ({ projectPath, chapterNumber, title, content }) => {
-      const fileName = `chapters/${chapterFileName(chapterNumber)}`;
-      const savedPath = await saveMarkdownFile(projectPath, fileName, `# ${title}\n\n${content}`);
-      return textResult({ savedPath, suggestedNextStep: 'chapter_review' });
+      const checked = checkedProjectPath(projectPath);
+      const state = await loadState(checked);
+      if (state.currentStep !== 'chapter' || state.currentChapter !== chapterNumber) {
+        throw new Error(
+          `save_chapter requires currentStep="chapter" and currentChapter=${chapterNumber}; got currentStep="${state.currentStep}", currentChapter=${state.currentChapter}`
+        );
+      }
+      return textResult(await submitStepResult({
+        projectPath: checked,
+        step: 'chapter',
+        content: `# ${title}\n\n${content}`,
+      }));
     }
   );
 
@@ -156,7 +186,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     },
     async ({ projectPath, chapterNumber }) =>
       textResult({
-        context: await buildContext({ projectPath, purpose: 'chapter_generation', chapterNumber }),
+        context: await buildContext({ projectPath: checkedProjectPath(projectPath), purpose: 'chapter_generation', chapterNumber }),
         hint: 'Persist the result via submit_step_result(step="chapter") when the workflow currentStep is "chapter"; the workflow then requires chapter_review before memory_card.',
       })
   );
@@ -170,7 +200,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     },
     async ({ projectPath, chapterNumber }) =>
       textResult({
-        context: await buildContext({ projectPath, purpose: 'memory_extraction', chapterNumber }),
+        context: await buildContext({ projectPath: checkedProjectPath(projectPath), purpose: 'memory_extraction', chapterNumber }),
         hint: 'Submit the extracted memory card via submit_step_result with step="memory_card" when the workflow currentStep matches.',
       })
   );
@@ -183,7 +213,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       chapterNumber: z.number().int().positive(),
     },
     async ({ projectPath, chapterNumber }) =>
-      textResult(await requestSideTrack({ projectPath, step: 'chapter_review', chapterNumber }))
+      textResult(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'chapter_review', chapterNumber }))
   );
 
   server.tool(
@@ -195,7 +225,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       feedback: z.string().optional(),
     },
     async ({ projectPath, chapterNumber, feedback }) =>
-      textResult(await requestSideTrack({ projectPath, step: 'chapter_revision', chapterNumber, feedback }))
+      textResult(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'chapter_revision', chapterNumber, feedback }))
   );
 
   server.tool(
@@ -211,7 +241,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     },
     async ({ projectPath, query, topK, types, chapterStart, chapterEnd }) => {
       const chapterRange = chapterStart && chapterEnd ? { start: chapterStart, end: chapterEnd } : undefined;
-      const hits = await retrieve(projectPath, query, { topK, types, chapterRange });
+      const hits = await retrieve(checkedProjectPath(projectPath), query, { topK, types, chapterRange });
       return textResult({ query, hits });
     }
   );
@@ -226,7 +256,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     },
     async ({ projectPath, start, end }) => {
       const range = start && end ? { start, end } : undefined;
-      return textResult(await requestSideTrack({ projectPath, step: 'cross_chapter_review', range }));
+      return textResult(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'cross_chapter_review', range }));
     }
   );
 
@@ -241,14 +271,14 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       reason: z.string().optional(),
     },
     async ({ projectPath, content, reason }) =>
-      textResult(await amendStoryBible({ projectPath, content, reason }))
+      textResult(await amendStoryBible({ projectPath: checkedProjectPath(projectPath), content, reason }))
   );
 
   server.tool(
     'list_bible_versions',
     'List archived story-bible versions for a project (filenames sorted oldest first).',
     { projectPath: z.string().min(1) },
-    async ({ projectPath }) => textResult({ versions: await listStoryBibleVersions(projectPath) })
+    async ({ projectPath }) => textResult({ versions: await listStoryBibleVersions(checkedProjectPath(projectPath)) })
   );
 
   server.tool(
@@ -259,7 +289,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       status: z.enum(['planted', 'building', 'paid', 'dropped']).optional(),
     },
     async ({ projectPath, status }) => {
-      const all = await loadThreads(projectPath);
+      const all = await loadThreads(checkedProjectPath(projectPath));
       const filtered = status ? all.filter((t) => t.status === status) : all;
       return textResult({ threads: filtered });
     }
@@ -279,7 +309,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       notes: z.string().nullable().optional(),
     },
     async ({ projectPath, id, ...patch }) =>
-      textResult(await updateThread(projectPath, id, patch))
+      textResult(await updateThread(checkedProjectPath(projectPath), id, patch))
   );
 
   server.tool(
@@ -290,7 +320,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       label: z.string().optional(),
     },
     async ({ sourceProjectPath, label }) =>
-      textResult(await forkProject({ sourceProjectPath, label }))
+      textResult(await forkProject({ sourceProjectPath: checkedProjectPath(sourceProjectPath), label }))
   );
 
   server.tool(
@@ -301,7 +331,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       chapterNumber: z.number().int().positive(),
     },
     async ({ projectPath, chapterNumber }) =>
-      textResult(await deleteChapter({ projectPath, chapterNumber }))
+      textResult(await deleteChapter({ projectPath: checkedProjectPath(projectPath), chapterNumber }))
   );
 
   server.tool(
@@ -312,6 +342,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       step: z.enum([
         'novel_metadata',
         'story_bible',
+        'style_guide',
         'architecture',
         'chapter',
         'memory_card',
@@ -320,7 +351,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       chapterNumber: z.number().int().positive().optional(),
     },
     async ({ projectPath, step, chapterNumber }) =>
-      textResult(await redoStep({ projectPath, step, chapterNumber }))
+      textResult(await redoStep({ projectPath: checkedProjectPath(projectPath), step, chapterNumber }))
   );
 
   // ===== MCP Prompts (slash commands) =====
@@ -330,14 +361,15 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     'Start a brand new novel project under the configured workspace.',
     {
       prompt: z.string().describe('User idea / premise / genre, in any language.'),
-      chapters: z.string().optional().describe('Target number of chapters as a string. Defaults to 5.'),
+      chapters: z.string().optional().describe('Planning batch size as a string. Defaults to 5.'),
+      totalChapters: z.string().optional().describe('Whole-book target chapter count as a string. Defaults to 12.'),
     },
-    ({ prompt, chapters }) => ({
+    ({ prompt, chapters, totalChapters }) => ({
       messages: [{
         role: 'user' as const,
         content: {
           type: 'text' as const,
-          text: `Use the novelforge MCP server. Call start_novel_project with prompt="${prompt}", targetChapters=${chapters ?? '5'}, then enter the autonomous loop: read next.instruction, generate the requested content, call submit_step_result, repeat until currentStep is "complete". Show me the projectPath after start_novel_project returns.`,
+          text: `Use the novelforge MCP server. Call start_novel_project with prompt="${prompt}", targetChapters=${chapters ?? '5'}, plannedTotalChapters=${totalChapters ?? '12'}, then enter the autonomous loop: read next.instruction, generate the requested content, call submit_step_result, repeat until currentStep is "complete". Show me the projectPath after start_novel_project returns.`,
         },
       }],
     })
@@ -369,7 +401,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
         role: 'user' as const,
         content: {
           type: 'text' as const,
-          text: 'Use the novelforge MCP server: call list_projects with no arguments. Show me the result in a compact table (title, currentStep, chaptersWritten/targetChapters, updatedAt, projectPath).',
+          text: 'Use the novelforge MCP server: call list_projects with no arguments. Show me the result in a compact table (title, currentStep, chaptersWritten/plannedTotalChapters, updatedAt, projectPath).',
         },
       }],
     })

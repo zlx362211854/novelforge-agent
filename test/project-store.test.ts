@@ -23,9 +23,26 @@ test('createProject initializes file layout and state', async () => {
     assert.match(result.state.projectPath, /novels/);
     assert.equal(result.state.currentStep, 'novel_metadata');
     assert.equal(result.state.targetChapters, 3);
+    assert.equal(result.state.plannedTotalChapters, 3);
 
     const loaded = await loadState(result.state.projectPath);
     assert.equal(loaded.projectId, result.state.projectId);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('createProject defaults to a small planning batch and larger whole-book target when no chapter count is supplied', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'novel-agent-'));
+  try {
+    const result = await createProject({
+      workspaceRoot: root,
+      prompt: '写一本默认长度小说',
+      outputDir: 'novels',
+    });
+
+    assert.equal(result.state.targetChapters, 5);
+    assert.equal(result.state.plannedTotalChapters, 12);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

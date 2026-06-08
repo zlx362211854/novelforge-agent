@@ -6,6 +6,8 @@ import { activeThreads, loadThreads } from './threadStore.js';
 
 export type ContextPurpose =
   | 'chapter_generation'
+  | 'style_guide'
+  | 'architecture_extension'
   | 'memory_extraction'
   | 'continuity_review'
   | 'revision'
@@ -32,12 +34,14 @@ export async function buildContext(input: BuildContextInput): Promise<string> {
   const parts: string[] = [];
   const metadata = await readOptional(join(input.projectPath, 'novel.json'));
   const storyBible = await readOptional(join(input.projectPath, 'story-bible.md'));
+  const styleGuideJson = await readOptional(join(input.projectPath, 'style-guide.json'));
   const chaptersJson = await readOptional(join(input.projectPath, 'architecture/chapters.json'));
   const charactersJson = await readOptional(join(input.projectPath, 'characters.json'));
   const volumePacingJson = await readOptional(join(input.projectPath, 'architecture/volume-pacing.json'));
 
   if (metadata) parts.push(`## Novel Metadata\n${metadata}`);
   if (storyBible) parts.push(`## Story Bible\n${storyBible.slice(0, 4000)}`);
+  if (styleGuideJson) parts.push(`## Style Guide\n${styleGuideJson}`);
   if (charactersJson) parts.push(`## Character State Table\n${charactersJson}`);
 
   function addVolumePacing(volumeId?: string): void {
@@ -111,6 +115,32 @@ export async function buildContext(input: BuildContextInput): Promise<string> {
       if (memory) memoryParts.push(`### Chapter ${i}\n${memory}`);
     }
     if (memoryParts.length) parts.push(`## Memory Cards\n${memoryParts.join('\n')}`);
+  }
+
+  if (input.purpose === 'architecture_extension') {
+    if (chaptersJson) parts.push(`## Existing Chapter Architecture List\n${chaptersJson}`);
+    if (volumePacingJson) parts.push(`## Existing Volume Pacing Boards\n${volumePacingJson}`);
+
+    const start = Math.max(1, (input.chapterNumber ?? 1) - 5);
+    const end = Math.max(0, (input.chapterNumber ?? 1) - 1);
+    const memoryParts: string[] = [];
+    for (let i = start; i <= end; i += 1) {
+      const memory = await readOptional(join(input.projectPath, 'memory', memoryFileName(i)));
+      if (memory) memoryParts.push(`### Chapter ${i} Memory\n${memory}`);
+    }
+    if (memoryParts.length) parts.push(`## Recent Memory Cards\n${memoryParts.join('\n')}`);
+
+    const allThreads = await loadThreads(input.projectPath);
+    const active = activeThreads(allThreads);
+    if (active.length) {
+      const lines = active.map((t) => {
+        const flags: string[] = [`#${t.id}`, `status=${t.status}`, `planted=ch${t.plantedAt}`];
+        if (t.plannedPayoffAt) flags.push(`payoff=ch${t.plannedPayoffAt}`);
+        if (t.lastTouchedAt !== t.plantedAt) flags.push(`touched=ch${t.lastTouchedAt}`);
+        return `- ${t.description}  (${flags.join(', ')})`;
+      });
+      parts.push(`## Active Foreshadow Threads\n${lines.join('\n')}`);
+    }
   }
 
   if (input.purpose === 'chapter_review' && input.chapterNumber) {
