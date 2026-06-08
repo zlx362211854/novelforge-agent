@@ -171,7 +171,7 @@ NOVELFORGE_WORKSPACE = "/absolute/path/where/projects/should/live"
 ## Tool reference
 
 ### Project lifecycle
-- **`start_novel_project`** `(prompt, language?, outputDir?, targetChapters?, plannedTotalChapters?)` — create a new project under `<workspaceRoot>/<outputDir>/<slug>-<rand6>/` and return the first step's instruction. `targetChapters` is the per-batch planning size; MCP defaults to 5. `plannedTotalChapters` is the whole-book target; MCP defaults to 12.
+- **`start_novel_project`** `(prompt, language?, outputDir?, targetChapters?, plannedTotalChapters?)` — create a new project under `<workspaceRoot>/<outputDir>/<prompt-slug>-<rand6>/` and return the first step's instruction. After `novel_metadata` is accepted, the directory is renamed to `<title-slug>-<same-rand6>/`; callers must continue with the returned `state.projectPath`. `targetChapters` is the per-batch planning size; MCP defaults to 5. `plannedTotalChapters` is the whole-book target; MCP defaults to 12.
 - **`list_projects`** `(outputDir?)` — list all projects in the workspace, newest first.
 - **`get_project_status`** `(projectPath)` — compact summary: current step, chapters written, open threads, latest review verdict.
 - **`get_next_step`** `(projectPath)` — return the prompt + packed context for whatever the workflow expects next.
@@ -207,7 +207,7 @@ Dynamic planning is built into the state machine: after each accepted chapter an
 A project on disk:
 
 ```
-novels/<slug>-<rand6>/
+novels/<title-slug>-<rand6>/
 ├── agent-state.json              # workflow state (currentStep, currentChapter, files map, …)
 ├── novel.json                    # metadata (NovelMetadataSchema)
 ├── characters.json               # independent character state table

@@ -96,7 +96,7 @@ test('getProjectStatus reports progress and pickups latest review', async () => 
     const { state } = await createProject({ workspaceRoot: root, prompt: '废土侦探', outputDir: 'novels', targetChapters: 1 });
 
     // Seed through metadata + bible
-    await submitStepResult({
+    const metadata = await submitStepResult({
       projectPath: state.projectPath,
       step: 'novel_metadata',
       content: JSON.stringify({
@@ -108,9 +108,10 @@ test('getProjectStatus reports progress and pickups latest review', async () => 
         coreCast: [{ name: '周临', role: 'protagonist', description: '废土侦探' }],
       }),
     });
-    await submitStepResult({ projectPath: state.projectPath, step: 'story_bible', content: '# 故事圣经\n' });
+    const projectPath = metadata.state.projectPath;
+    await submitStepResult({ projectPath, step: 'story_bible', content: '# 故事圣经\n' });
 
-    const status = await getProjectStatus(state.projectPath);
+    const status = await getProjectStatus(projectPath);
     assert.equal(status.title, '灰烬证词');
     assert.equal(status.currentStep, 'style_guide');
     assert.equal(status.completedSteps, 2);
@@ -127,7 +128,7 @@ test('getProjectStatus surfaces openThreads from memory cards', async () => {
   const root = await mkdtemp(join(tmpdir(), 'novel-disc-'));
   try {
     const { state } = await createProject({ workspaceRoot: root, prompt: '短篇', outputDir: 'novels', targetChapters: 1 });
-    await submitStepResult({
+    const metadata = await submitStepResult({
       projectPath: state.projectPath,
       step: 'novel_metadata',
       content: JSON.stringify({
@@ -139,10 +140,11 @@ test('getProjectStatus surfaces openThreads from memory cards', async () => {
         coreCast: [{ name: 'A', role: 'protagonist', description: 'x' }],
       }),
     });
-    await submitStepResult({ projectPath: state.projectPath, step: 'story_bible', content: '# bible\n' });
-    await submitStyleGuide(state.projectPath);
+    const projectPath = metadata.state.projectPath;
+    await submitStepResult({ projectPath, step: 'story_bible', content: '# bible\n' });
+    await submitStyleGuide(projectPath);
     await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'architecture',
       content: JSON.stringify({
         full: '...',
@@ -150,10 +152,10 @@ test('getProjectStatus surfaces openThreads from memory cards', async () => {
         chapters: [{ chapterNumber: 1, title: 't', volumeId: 'v1', summary: 's', requiredBeats: ['b1'] }],
       }),
     });
-    await submitStepResult({ projectPath: state.projectPath, step: 'chapter', content: '# t\n\n内容。' });
-    await submitStepResult({ projectPath: state.projectPath, step: 'chapter_review', content: cleanReview(1) });
+    await submitStepResult({ projectPath, step: 'chapter', content: '# t\n\n内容。' });
+    await submitStepResult({ projectPath, step: 'chapter_review', content: cleanReview(1) });
     await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'memory_card',
       content: JSON.stringify({
         summary: '...',
@@ -165,7 +167,7 @@ test('getProjectStatus surfaces openThreads from memory cards', async () => {
       }),
     });
 
-    const status = await getProjectStatus(state.projectPath);
+    const status = await getProjectStatus(projectPath);
     assert.equal(status.chaptersWritten, 1);
     assert.deepEqual(status.openThreads, ['谁是真凶？']);
   } finally {

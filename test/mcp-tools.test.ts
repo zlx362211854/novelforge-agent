@@ -95,7 +95,7 @@ test('MCP save_chapter submits through workflow and advances to chapter_review',
       outputDir: 'novels',
       targetChapters: 1,
     });
-    await submitStepResult({
+    const metadata = await submitStepResult({
       projectPath: state.projectPath,
       step: 'novel_metadata',
       content: JSON.stringify({
@@ -107,10 +107,11 @@ test('MCP save_chapter submits through workflow and advances to chapter_review',
         coreCast: [{ name: '陈序', role: 'protagonist', description: '返乡者' }],
       }),
     });
-    await submitStepResult({ projectPath: state.projectPath, step: 'story_bible', content: '# 故事圣经\n' });
-    await submitStyleGuide(state.projectPath);
+    const projectPath = metadata.state.projectPath;
+    await submitStepResult({ projectPath, step: 'story_bible', content: '# 故事圣经\n' });
+    await submitStyleGuide(projectPath);
     await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'architecture',
       content: JSON.stringify({
         full: '一章完成返乡。',
@@ -121,16 +122,16 @@ test('MCP save_chapter submits through workflow and advances to chapter_review',
 
     const server = createNovelAgentServer({ workspaceRoot: root });
     await toolHandler(server, 'save_chapter')({
-      projectPath: state.projectPath,
+      projectPath,
       chapterNumber: 1,
       title: '旧车站',
       content: '陈序下车，旧钟声在雨里敲响。',
     });
 
-    const nextState = await loadState(state.projectPath);
+    const nextState = await loadState(projectPath);
     assert.equal(nextState.currentStep, 'chapter_review');
     assert.equal(nextState.files['chapter-1'], 'chapters/001.md');
-    assert.match(await readFile(join(state.projectPath, 'chapters/001.md'), 'utf8'), /旧钟声/);
+    assert.match(await readFile(join(projectPath, 'chapters/001.md'), 'utf8'), /旧钟声/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

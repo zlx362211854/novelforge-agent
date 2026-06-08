@@ -83,7 +83,7 @@ async function seedProjectToChapter1(workspaceRoot: string) {
     targetChapters: 1,
   });
 
-  await submitStepResult({
+  const metadata = await submitStepResult({
     projectPath: state.projectPath,
     step: 'novel_metadata',
     content: JSON.stringify({
@@ -95,10 +95,11 @@ async function seedProjectToChapter1(workspaceRoot: string) {
       coreCast: [{ name: '陈序', role: 'protagonist', description: '返乡者' }],
     }),
   });
-  await submitStepResult({ projectPath: state.projectPath, step: 'story_bible', content: '# 故事圣经\n' });
-  await submitStyleGuide(state.projectPath);
+  const projectPath = metadata.state.projectPath;
+  await submitStepResult({ projectPath, step: 'story_bible', content: '# 故事圣经\n' });
+  await submitStyleGuide(projectPath);
   await submitStepResult({
-    projectPath: state.projectPath,
+    projectPath,
     step: 'architecture',
     content: JSON.stringify({
       full: '一日内完成返乡和和解。',
@@ -107,17 +108,17 @@ async function seedProjectToChapter1(workspaceRoot: string) {
     }),
   });
   await submitStepResult({
-    projectPath: state.projectPath,
+    projectPath,
     step: 'chapter',
     content: '# 旧车站\n\n陈序下车。',
   });
   await submitStepResult({
-    projectPath: state.projectPath,
+    projectPath,
     step: 'chapter_review',
     content: cleanReview(1),
   });
   await submitStepResult({
-    projectPath: state.projectPath,
+    projectPath,
     step: 'memory_card',
     content: JSON.stringify({
       summary: '陈序抵达旧车站。',
@@ -128,7 +129,7 @@ async function seedProjectToChapter1(workspaceRoot: string) {
       openThreads: ['陈序为何返乡'],
     }),
   });
-  return state.projectPath;
+  return projectPath;
 }
 
 test('chapter_review side-track saves report and resumes original step', async () => {
@@ -191,7 +192,7 @@ test('automatic chapter gate forces revision until clean review', async () => {
       outputDir: 'novels',
       targetChapters: 1,
     });
-    await submitStepResult({
+    const metadata = await submitStepResult({
       projectPath: state.projectPath,
       step: 'novel_metadata',
       content: JSON.stringify({
@@ -203,10 +204,11 @@ test('automatic chapter gate forces revision until clean review', async () => {
         coreCast: [{ name: '陈序', role: 'protagonist', description: '返乡者' }],
       }),
     });
-    await submitStepResult({ projectPath: state.projectPath, step: 'story_bible', content: '# 故事圣经\n' });
-    await submitStyleGuide(state.projectPath);
+    const projectPath = metadata.state.projectPath;
+    await submitStepResult({ projectPath, step: 'story_bible', content: '# 故事圣经\n' });
+    await submitStyleGuide(projectPath);
     await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'architecture',
       content: JSON.stringify({
         full: '一日内完成返乡和和解。',
@@ -216,28 +218,28 @@ test('automatic chapter gate forces revision until clean review', async () => {
     });
 
     const afterChapter = await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'chapter',
       content: '# 旧车站\n\n陈序下车。',
     });
     assert.equal(afterChapter.state.currentStep, 'chapter_review');
 
     const afterFailedReview = await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'chapter_review',
       content: failedReview(1),
     });
     assert.equal(afterFailedReview.state.currentStep, 'chapter_revision');
 
     const afterRevision = await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'chapter_revision',
       content: '# 旧车站\n\n陈序下车，旧车站的钟声把他十年前逃离的秘密重新敲醒。',
     });
     assert.equal(afterRevision.state.currentStep, 'chapter_review');
 
     const afterCleanReview = await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'chapter_review',
       content: cleanReview(1),
     });

@@ -9,12 +9,12 @@ export function makeProjectSlug(title: string): string {
   const replaced = title
     .trim()
     .split('')
-    .map((char) => PINYIN_FALLBACK[char] || char)
-    .join('-')
+    .map((char) => PINYIN_FALLBACK[char] ? `-${PINYIN_FALLBACK[char]}-` : char)
+    .join('')
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
     .replace(/^-+|-+$/g, '');
   return replaced || `novel-${Date.now()}`;
 }

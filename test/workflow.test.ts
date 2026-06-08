@@ -66,6 +66,7 @@ test('workflow advances from metadata to story bible', async () => {
     assert.match(first.instruction, /长篇网络小说总策划/);
     assert.match(first.instruction, /coreCast/);
 
+    const oldProjectPath = state.projectPath;
     const next = await submitStepResult({
       projectPath: state.projectPath,
       step: 'novel_metadata',
@@ -80,7 +81,9 @@ test('workflow advances from metadata to story bible', async () => {
     });
 
     assert.equal(next.state.currentStep, 'story_bible');
-    assert.match(await readFile(join(state.projectPath, 'novel.json'), 'utf8'), /灰烬证词/);
+    assert.notEqual(next.state.projectPath, oldProjectPath);
+    assert.match(next.state.projectPath, /灰烬证词-[a-f0-9]{6}$/);
+    assert.match(await readFile(join(next.state.projectPath, 'novel.json'), 'utf8'), /灰烬证词/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -96,7 +99,7 @@ test('story bible submission advances to style guide before architecture', async
       targetChapters: 2,
     });
 
-    await submitStepResult({
+    const metadata = await submitStepResult({
       projectPath: state.projectPath,
       step: 'novel_metadata',
       content: JSON.stringify({
@@ -108,9 +111,10 @@ test('story bible submission advances to style guide before architecture', async
         coreCast: [{ name: '沈砚', role: 'protagonist', description: '山门杂役' }],
       }),
     });
+    const projectPath = metadata.state.projectPath;
 
     const result = await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'story_bible',
       content: '# 故事圣经\n',
     });
@@ -178,7 +182,7 @@ test('chapter and memory submissions advance until continuity review', async () 
       targetChapters: 1,
     });
 
-    await submitStepResult({
+    const metadata = await submitStepResult({
       projectPath: state.projectPath,
       step: 'novel_metadata',
       content: JSON.stringify({
@@ -190,10 +194,11 @@ test('chapter and memory submissions advance until continuity review', async () 
         coreCast: [{ name: '陈序', role: 'protagonist', description: '返乡者' }],
       }),
     });
-    await submitStepResult({ projectPath: state.projectPath, step: 'story_bible', content: '# 故事圣经\n' });
-    await submitStyleGuide(state.projectPath);
+    const projectPath = metadata.state.projectPath;
+    await submitStepResult({ projectPath, step: 'story_bible', content: '# 故事圣经\n' });
+    await submitStyleGuide(projectPath);
     await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'architecture',
       content: JSON.stringify({
         full: '一日内完成返乡和和解。',
@@ -201,16 +206,16 @@ test('chapter and memory submissions advance until continuity review', async () 
         chapters: [{ chapterNumber: 1, title: '旧车站', volumeId: 'v1', summary: '抵达', requiredBeats: ['抵达车站'] }],
       }),
     });
-    const afterChapter = await submitStepResult({ projectPath: state.projectPath, step: 'chapter', content: '# 旧车站\n\n陈序下车。' });
+    const afterChapter = await submitStepResult({ projectPath, step: 'chapter', content: '# 旧车站\n\n陈序下车。' });
     assert.equal(afterChapter.state.currentStep, 'chapter_review');
     const afterReview = await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'chapter_review',
       content: cleanReview(1),
     });
     assert.equal(afterReview.state.currentStep, 'memory_card');
     const afterMemory = await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'memory_card',
       content: JSON.stringify({
         summary: '陈序抵达旧车站。',
@@ -224,12 +229,12 @@ test('chapter and memory submissions advance until continuity review', async () 
 
     assert.equal(afterMemory.state.currentStep, 'continuity_review');
     const final = await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'continuity_review',
       content: JSON.stringify({ range: { start: 1, end: 1 }, status: 'clean', issues: [] }),
     });
     assert.equal(final.state.currentStep, 'complete');
-    assert.equal((await loadState(state.projectPath)).currentStep, 'complete');
+    assert.equal((await loadState(projectPath)).currentStep, 'complete');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -245,7 +250,7 @@ test('chapter review fails the gate when prose rhythm acceptance fails', async (
       targetChapters: 1,
     });
 
-    await submitStepResult({
+    const metadata = await submitStepResult({
       projectPath: state.projectPath,
       step: 'novel_metadata',
       content: JSON.stringify({
@@ -257,10 +262,11 @@ test('chapter review fails the gate when prose rhythm acceptance fails', async (
         coreCast: [{ name: '沈砚', role: 'protagonist', description: '山门杂役' }],
       }),
     });
-    await submitStepResult({ projectPath: state.projectPath, step: 'story_bible', content: '# 故事圣经\n' });
-    await submitStyleGuide(state.projectPath);
+    const projectPath = metadata.state.projectPath;
+    await submitStepResult({ projectPath, step: 'story_bible', content: '# 故事圣经\n' });
+    await submitStyleGuide(projectPath);
     await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'architecture',
       content: JSON.stringify({
         full: '沈砚踏上问道之路。',
@@ -268,10 +274,10 @@ test('chapter review fails the gate when prose rhythm acceptance fails', async (
         chapters: [{ chapterNumber: 1, title: '山门夜雨', volumeId: 'v1', summary: '沈砚发现灵石异常', requiredBeats: ['发现灵石异常'] }],
       }),
     });
-    await submitStepResult({ projectPath: state.projectPath, step: 'chapter', content: '# 山门夜雨\n\n雨停了。\n他醒了。\n石头亮了。\n他怕了。' });
+    await submitStepResult({ projectPath, step: 'chapter', content: '# 山门夜雨\n\n雨停了。\n他醒了。\n石头亮了。\n他怕了。' });
 
     const afterReview = await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'chapter_review',
       content: JSON.stringify({
         chapterNumber: 1,
@@ -307,7 +313,7 @@ test('workflow requests architecture extension when written chapters reach plann
       plannedTotalChapters: 2,
     });
 
-    await submitStepResult({
+    const metadata = await submitStepResult({
       projectPath: state.projectPath,
       step: 'novel_metadata',
       content: JSON.stringify({
@@ -319,10 +325,11 @@ test('workflow requests architecture extension when written chapters reach plann
         coreCast: [{ name: '林岚', role: 'protagonist', description: '调查员' }],
       }),
     });
-    await submitStepResult({ projectPath: state.projectPath, step: 'story_bible', content: '# 故事圣经\n' });
-    await submitStyleGuide(state.projectPath);
+    const projectPath = metadata.state.projectPath;
+    await submitStepResult({ projectPath, step: 'story_bible', content: '# 故事圣经\n' });
+    await submitStyleGuide(projectPath);
     await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'architecture',
       content: JSON.stringify({
         full: '林岚追查旧信，最终揭开雾港真相。',
@@ -331,10 +338,10 @@ test('workflow requests architecture extension when written chapters reach plann
       }),
     });
 
-    await submitStepResult({ projectPath: state.projectPath, step: 'chapter', content: '# 雾中邮局\n\n林岚在邮局找到旧信。' });
-    await submitStepResult({ projectPath: state.projectPath, step: 'chapter_review', content: cleanReview(1) });
+    await submitStepResult({ projectPath, step: 'chapter', content: '# 雾中邮局\n\n林岚在邮局找到旧信。' });
+    await submitStepResult({ projectPath, step: 'chapter_review', content: cleanReview(1) });
     const afterFirstMemory = await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'memory_card',
       content: JSON.stringify({
         summary: '林岚找到旧信。',
@@ -351,7 +358,7 @@ test('workflow requests architecture extension when written chapters reach plann
     assert.match(afterFirstMemory.next?.instruction ?? '', /从第 2 章开始/);
 
     const afterExtension = await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'architecture_extension',
       content: JSON.stringify({
         chapters: [{ chapterNumber: 2, title: '灯塔回声', volumeId: 'v1', summary: '林岚追到灯塔并发现寄信人痕迹', requiredBeats: ['抵达灯塔', '发现寄信人痕迹'] }],
@@ -359,13 +366,13 @@ test('workflow requests architecture extension when written chapters reach plann
     });
 
     assert.equal(afterExtension.state.currentStep, 'chapter');
-    const chapters = JSON.parse(await readFile(join(state.projectPath, 'architecture/chapters.json'), 'utf8')) as Array<{ chapterNumber: number }>;
+    const chapters = JSON.parse(await readFile(join(projectPath, 'architecture/chapters.json'), 'utf8')) as Array<{ chapterNumber: number }>;
     assert.deepEqual(chapters.map((chapter) => chapter.chapterNumber), [1, 2]);
 
-    await submitStepResult({ projectPath: state.projectPath, step: 'chapter', content: '# 灯塔回声\n\n林岚在灯塔发现寄信人的痕迹。' });
-    await submitStepResult({ projectPath: state.projectPath, step: 'chapter_review', content: cleanReview(2) });
+    await submitStepResult({ projectPath, step: 'chapter', content: '# 灯塔回声\n\n林岚在灯塔发现寄信人的痕迹。' });
+    await submitStepResult({ projectPath, step: 'chapter_review', content: cleanReview(2) });
     const afterSecondMemory = await submitStepResult({
-      projectPath: state.projectPath,
+      projectPath,
       step: 'memory_card',
       content: JSON.stringify({
         summary: '林岚发现寄信人的痕迹。',

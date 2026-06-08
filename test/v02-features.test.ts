@@ -69,7 +69,7 @@ async function seedThroughChapter1(workspaceRoot: string): Promise<string> {
     targetChapters: 2,
   });
 
-  await submitStepResult({
+  const metadata = await submitStepResult({
     projectPath: state.projectPath,
     step: 'novel_metadata',
     content: JSON.stringify({
@@ -81,14 +81,15 @@ async function seedThroughChapter1(workspaceRoot: string): Promise<string> {
       coreCast: [{ name: '陈青云', role: 'protagonist', description: '少年剑修' }],
     }),
   });
+  const projectPath = metadata.state.projectPath;
   await submitStepResult({
-    projectPath: state.projectPath,
+    projectPath,
     step: 'story_bible',
     content: '# 故事圣经\n\n## 核心人物\n- 陈青云：少年剑修。\n',
   });
-  await submitStyleGuide(state.projectPath);
+  await submitStyleGuide(projectPath);
   await submitStepResult({
-    projectPath: state.projectPath,
+    projectPath,
     step: 'architecture',
     content: JSON.stringify({
       full: '凡人成长为剑仙。',
@@ -100,17 +101,17 @@ async function seedThroughChapter1(workspaceRoot: string): Promise<string> {
     }),
   });
   await submitStepResult({
-    projectPath: state.projectPath,
+    projectPath,
     step: 'chapter',
     content: '# 玉佩觉醒\n\n陈青云在祖屋醒来，昆吾剑灵第一次开口，承诺九霄之路。',
   });
   await submitStepResult({
-    projectPath: state.projectPath,
+    projectPath,
     step: 'chapter_review',
     content: cleanReview(1),
   });
   await submitStepResult({
-    projectPath: state.projectPath,
+    projectPath,
     step: 'memory_card',
     content: JSON.stringify({
       summary: '陈青云觉醒昆吾剑灵。',
@@ -135,7 +136,7 @@ async function seedThroughChapter1(workspaceRoot: string): Promise<string> {
       }],
     }),
   });
-  return state.projectPath;
+  return projectPath;
 }
 
 test('threadStore: applyThreadActions plants, builds, pays, drops correctly', () => {

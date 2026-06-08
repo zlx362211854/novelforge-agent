@@ -101,6 +101,7 @@ test('StyleGuideSchema requires enforceable style fields', () => {
 
 test('file name helpers are stable and padded', () => {
   assert.equal(makeProjectSlug(' 星火 长夜!! '), 'xing-huo-chang-ye');
+  assert.equal(makeProjectSlug(' 青云问道!! '), '青云问道');
   assert.equal(chapterFileName(3), '003.md');
   assert.equal(memoryFileName(12), 'chapter-012.json');
 });
