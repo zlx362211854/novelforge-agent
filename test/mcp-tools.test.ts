@@ -15,6 +15,14 @@ test('createNovelAgentServer returns an MCP server object', () => {
   assert.equal(typeof server.connect, 'function');
 });
 
+test('MCP server version follows package.json', async () => {
+  const server = createNovelAgentServer({ workspaceRoot: process.cwd() });
+  const pkg = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8')) as { version: string };
+  const info = (server as unknown as { server: { _serverInfo: { version: string } } }).server._serverInfo;
+
+  assert.equal(info.version, pkg.version);
+});
+
 function toolHandler(server: unknown, name: string): (args: Record<string, unknown>) => Promise<unknown> {
   return (server as { _registeredTools: Record<string, { handler: (args: Record<string, unknown>) => Promise<unknown> }> })
     ._registeredTools[name].handler;

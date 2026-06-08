@@ -1,6 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   amendStoryBible,
   assertProjectPath,
@@ -21,7 +23,24 @@ import {
   updateThread,
 } from '../core/index.js';
 
-const MCP_SERVER_VERSION = '0.2.0';
+function packageVersion(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  while (true) {
+    try {
+      const raw = readFileSync(join(dir, 'package.json'), 'utf8');
+      const parsed = JSON.parse(raw) as { version?: unknown };
+      if (typeof parsed.version === 'string' && parsed.version) return parsed.version;
+    } catch {
+      // keep walking upward until the package root is found
+    }
+
+    const parent = dirname(dir);
+    if (parent === dir) return '0.0.0';
+    dir = parent;
+  }
+}
+
+const MCP_SERVER_VERSION = packageVersion();
 
 export interface CreateNovelAgentServerOptions {
   workspaceRoot: string;
