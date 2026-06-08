@@ -1,6 +1,6 @@
 {
   "name": "novelforge-agent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local-first long-form novel workflow engine for any MCP host (Claude Code, Codex CLI, …) or CLI. State machine + zod schemas + BM25 retrieval + persistent project state. No LLM dependency.",
   "keywords": [
     "mcp",
