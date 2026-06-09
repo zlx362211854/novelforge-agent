@@ -23,7 +23,8 @@ test('createProject initializes file layout and state', async () => {
     assert.match(result.state.projectPath, /novels/);
     assert.equal(result.state.currentStep, 'novel_metadata');
     assert.equal(result.state.targetChapters, 3);
-    assert.equal(result.state.plannedTotalChapters, 3);
+    assert.equal(result.state.lengthPreset, 'medium');
+    assert.equal(result.state.plannedTotalChapters, 100);
 
     const loaded = await loadState(result.state.projectPath);
     assert.equal(loaded.projectId, result.state.projectId);
@@ -42,7 +43,32 @@ test('createProject defaults to a small planning batch and larger whole-book tar
     });
 
     assert.equal(result.state.targetChapters, 5);
-    assert.equal(result.state.plannedTotalChapters, 12);
+    assert.equal(result.state.lengthPreset, 'medium');
+    assert.equal(result.state.plannedTotalChapters, 100);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('createProject supports short, medium, and long length presets', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'novel-agent-'));
+  try {
+    const short = await createProject({
+      workspaceRoot: root,
+      prompt: '写一本短篇',
+      outputDir: 'novels',
+      lengthPreset: 'short',
+    });
+    const long = await createProject({
+      workspaceRoot: root,
+      prompt: '写一本长篇',
+      outputDir: 'novels',
+      lengthPreset: 'long',
+    });
+
+    assert.equal(short.state.plannedTotalChapters, 12);
+    assert.equal(long.state.lengthPreset, 'long');
+    assert.equal(long.state.plannedTotalChapters, 1_000_000);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

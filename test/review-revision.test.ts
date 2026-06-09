@@ -81,6 +81,8 @@ async function seedProjectToChapter1(workspaceRoot: string) {
     prompt: '写一本短篇小说',
     outputDir: 'novels',
     targetChapters: 1,
+    lengthPreset: 'short',
+    plannedTotalChapters: 1,
   });
 
   const metadata = await submitStepResult({

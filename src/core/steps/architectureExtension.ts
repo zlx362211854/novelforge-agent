@@ -51,10 +51,36 @@ function mergeByKey<T>(existing: T[], incoming: T[] | undefined, keyOf: (item: T
   return [...map.values()];
 }
 
+const PACING_OVERLOAD_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  { label: 'major truth reveal', pattern: /真相|揭示|揭露|reveals?|truth|core secret/i },
+  { label: 'major power jump', pattern: /连破|连续突破|突破[^。.!?]{0,24}(层|境|级)|breakthrough|power jump/i },
+  { label: 'major battle', pattern: /大战|决战|激战|围攻|boss|showdown|all-out fight/i },
+  { label: 'core payoff', pattern: /回收|解开|解封|payoff|resolved|unlock/i },
+  { label: 'new arc launch', pattern: /新地图|北极|冰原|new region|new arc|next arc/i },
+  { label: 'top antagonist escalation', pattern: /殿主亲至|最终反派|堂主|宗主|final villain|chief antagonist/i },
+];
+
+function assertPacingGuardrails(state: AgentState, nextChapters: ChapterArchitecture[]): void {
+  const total = state.plannedTotalChapters ?? state.targetChapters;
+  for (const chapter of nextChapters) {
+    if (chapter.chapterNumber >= total) continue;
+    const text = `${chapter.title}\n${chapter.summary}\n${chapter.requiredBeats.join('\n')}`;
+    const hits = PACING_OVERLOAD_PATTERNS
+      .filter(({ pattern }) => pattern.test(text))
+      .map(({ label }) => label);
+    if (hits.length >= 4) {
+      throw new Error(
+        `architecture_extension chapter ${chapter.chapterNumber} is overloaded for a non-final chapter: ${hits.join(', ')}. Split major reveals, payoffs, power jumps, battles, and new-arc launches across multiple chapters.`
+      );
+    }
+  }
+}
+
 export const architectureExtensionHandler: StepHandler = async (state, content) => {
   const parsed = ArchitectureExtensionPayloadSchema.parse(parseJson(content));
   const existingChapters = await readJsonArray<ChapterArchitecture>(state.projectPath, 'architecture/chapters.json');
   assertContiguousExtension(state, existingChapters, parsed.chapters);
+  assertPacingGuardrails(state, parsed.chapters);
 
   const chapters = [...existingChapters, ...parsed.chapters]
     .sort((a, b) => a.chapterNumber - b.chapterNumber);

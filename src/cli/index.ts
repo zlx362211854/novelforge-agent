@@ -29,6 +29,12 @@ function parseLanguage(value: string): 'zh-CN' | 'en-US' {
   throw new Error('Invalid --language. Use zh-CN or en-US');
 }
 
+function parseLengthPreset(value: string | undefined): 'short' | 'medium' | 'long' {
+  const v = value || 'medium';
+  if (v === 'short' || v === 'medium' || v === 'long') return v;
+  throw new Error('Invalid --length. Use short | medium | long');
+}
+
 function parseHost(value: string | undefined): InstallHost {
   const v = (value || 'claude-code').toLowerCase();
   if (v === 'claude-code' || v === 'claude') return 'claude-code';
@@ -56,7 +62,8 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd()):
     if (!prompt.trim()) throw new Error('Missing --prompt');
     const language = parseLanguage(valueAfter(argv, '--language') || 'zh-CN');
     const chapters = Number(valueAfter(argv, '--chapters') || 5);
-    const totalChapters = Number(valueAfter(argv, '--total-chapters') || 12);
+    const totalChapters = valueAfter(argv, '--total-chapters');
+    const lengthPreset = parseLengthPreset(valueAfter(argv, '--length'));
     const outputDir = valueAfter(argv, '--output') || 'novels';
     const result = await createProject({
       workspaceRoot: cwd,
@@ -64,7 +71,8 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd()):
       language,
       outputDir,
       targetChapters: chapters,
-      plannedTotalChapters: totalChapters,
+      lengthPreset,
+      plannedTotalChapters: totalChapters ? Number(totalChapters) : undefined,
     });
     const next = await getNextStep(result.state.projectPath);
     console.log(JSON.stringify({ state: result.state, next }, null, 2));

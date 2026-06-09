@@ -69,7 +69,7 @@ test('architecture prompt requests volume pacing boards', () => {
 
   assert.match(result.prompt, /volumePacing/);
   assert.match(result.prompt, /keyTurns/);
-  assert.match(result.prompt, /全本目标约 12 章/);
+  assert.match(result.prompt, /全本目标：约 12 章/);
 });
 
 test('style guide prompt creates enforceable prose constraints', () => {
@@ -91,6 +91,18 @@ test('architecture extension prompt starts from current chapter and uses whole-b
   assert.match(result.prompt, /从第 2 章开始/);
   assert.match(result.prompt, /全本目标到第 12 章结束/);
   assert.match(result.prompt, /chapters\[0\]\.chapterNumber 必须等于 2/);
+});
+
+test('long preset prompts avoid fixed final-chapter framing', () => {
+  const state = {
+    ...baseState('architecture'),
+    lengthPreset: 'long' as const,
+    plannedTotalChapters: 1_000_000,
+  };
+  const result = buildPromptForStep({ state });
+
+  assert.match(result.prompt, /开放式长篇/);
+  assert.doesNotMatch(result.prompt, /1000000/);
 });
 
 test('chapter review prompt includes mandatory acceptance gate', () => {

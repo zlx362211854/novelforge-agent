@@ -180,6 +180,8 @@ test('chapter and memory submissions advance until continuity review', async () 
       prompt: '写一本短篇小说',
       outputDir: 'novels',
       targetChapters: 1,
+      lengthPreset: 'short',
+      plannedTotalChapters: 1,
     });
 
     const metadata = await submitStepResult({
@@ -281,7 +283,7 @@ test('chapter review fails the gate when prose rhythm acceptance fails', async (
       step: 'chapter_review',
       content: JSON.stringify({
         chapterNumber: 1,
-        status: 'clean',
+        status: 'issues_found',
         acceptance: {
           requiredBeats: { status: 'pass', evidence: '发现灵石异常', missingBeats: [] },
           narrativeProgress: { status: 'pass', evidence: '主线启动' },
@@ -292,11 +294,78 @@ test('chapter review fails the gate when prose rhythm acceptance fails', async (
           endingHook: { status: 'pass', evidence: '灵石异常构成钩子' },
           repetition: { status: 'pass', evidence: '无重复桥段' },
         },
-        issues: [],
+        issues: [{
+          severity: 'medium',
+          category: 'style',
+          description: '连续单句短段形成伪节奏',
+          evidence: '雨停了。/他醒了。/石头亮了。/他怕了。',
+          suggestion: '合并为自然句群，并用动作或感官承接情绪。',
+        }],
       }),
     });
 
     assert.equal(afterReview.state.currentStep, 'chapter_revision');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('chapter review rejects clean reports that still contain issues', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'novel-agent-'));
+  try {
+    const { state } = await createProject({
+      workspaceRoot: root,
+      prompt: '写一本悬疑小说',
+      outputDir: 'novels',
+      targetChapters: 1,
+    });
+
+    const metadata = await submitStepResult({
+      projectPath: state.projectPath,
+      step: 'novel_metadata',
+      content: JSON.stringify({
+        title: '灰线',
+        genre: '悬疑',
+        premise: '调查员追查一条灰色线索。',
+        language: 'zh-CN',
+        style: '冷峻',
+        coreCast: [{ name: '林岚', role: 'protagonist', description: '调查员' }],
+      }),
+    });
+    const projectPath = metadata.state.projectPath;
+    await submitStepResult({ projectPath, step: 'story_bible', content: '# 故事圣经\n' });
+    await submitStyleGuide(projectPath);
+    await submitStepResult({
+      projectPath,
+      step: 'architecture',
+      content: JSON.stringify({
+        full: '林岚追查线索。',
+        volumes: [{ id: 'v1', title: '灰线', summary: '找到线索源头', order: 1 }],
+        chapters: [{ chapterNumber: 1, title: '灰线', volumeId: 'v1', summary: '林岚找到线索', requiredBeats: ['找到线索'] }],
+      }),
+    });
+    await submitStepResult({ projectPath, step: 'chapter', content: '# 灰线\n\n林岚找到线索。' });
+
+    const submitted = await submitStepResult({
+      projectPath,
+      step: 'chapter_review',
+      content: JSON.stringify({
+        chapterNumber: 1,
+        status: 'clean',
+        acceptance: JSON.parse(cleanReview(1)).acceptance,
+        issues: [{
+          severity: 'low',
+          category: 'pacing',
+          description: '节奏略急',
+          evidence: '线索发现过快',
+          suggestion: '增加调查阻力',
+        }],
+      }),
+    });
+
+    assert.equal(submitted.validation.ok, false);
+    assert.match(submitted.validation.message, /status clean requires/);
+    assert.equal(submitted.state.currentStep, 'chapter_review');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -385,6 +454,79 @@ test('workflow requests architecture extension when written chapters reach plann
     });
 
     assert.equal(afterSecondMemory.state.currentStep, 'continuity_review');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('architecture extension rejects overloaded non-final chapter plans', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'novel-agent-'));
+  try {
+    const { state } = await createProject({
+      workspaceRoot: root,
+      prompt: '写一本长篇悬疑小说',
+      outputDir: 'novels',
+      targetChapters: 1,
+      plannedTotalChapters: 3,
+    });
+
+    const metadata = await submitStepResult({
+      projectPath: state.projectPath,
+      step: 'novel_metadata',
+      content: JSON.stringify({
+        title: '雾港二号',
+        genre: '悬疑',
+        premise: '调查员追查雾港旧案。',
+        language: 'zh-CN',
+        style: '冷峻',
+        coreCast: [{ name: '林岚', role: 'protagonist', description: '调查员' }],
+      }),
+    });
+    const projectPath = metadata.state.projectPath;
+    await submitStepResult({ projectPath, step: 'story_bible', content: '# 故事圣经\n' });
+    await submitStyleGuide(projectPath);
+    await submitStepResult({
+      projectPath,
+      step: 'architecture',
+      content: JSON.stringify({
+        full: '林岚追查旧案。',
+        volumes: [{ id: 'v1', title: '旧案', summary: '追查旧案', order: 1 }],
+        chapters: [{ chapterNumber: 1, title: '雾港', volumeId: 'v1', summary: '林岚收到线索', requiredBeats: ['收到线索'] }],
+      }),
+    });
+
+    await submitStepResult({ projectPath, step: 'chapter', content: '# 雾港\n\n林岚收到线索。' });
+    await submitStepResult({ projectPath, step: 'chapter_review', content: cleanReview(1) });
+    await submitStepResult({
+      projectPath,
+      step: 'memory_card',
+      content: JSON.stringify({
+        summary: '林岚收到线索。',
+        keyEvents: ['收到线索'],
+        entities: [{ name: '林岚', type: 'person', state: '开始调查' }],
+        facts: [{ subject: '林岚', predicate: '收到', object: '线索' }],
+        stateChanges: [{ entity: '林岚', before: '没有线索', after: '开始调查' }],
+        openThreads: ['旧案真相'],
+      }),
+    });
+
+    const overloaded = await submitStepResult({
+      projectPath,
+      step: 'architecture_extension',
+      content: JSON.stringify({
+        chapters: [{
+          chapterNumber: 2,
+          title: '终局之前',
+          volumeId: 'v1',
+          summary: '林岚在灯塔揭示雾港真相，回收旧案核心伏笔，连续突破能力边界，卷入最终大战，并开启北极新地图等待最终反派亲至。',
+          requiredBeats: ['揭示真相', '回收旧案伏笔', '连续突破', '最终大战', '开启北极新地图'],
+        }],
+      }),
+    });
+
+    assert.equal(overloaded.validation.ok, false);
+    assert.match(overloaded.validation.message, /overloaded/);
+    assert.equal(overloaded.state.currentStep, 'architecture_extension');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

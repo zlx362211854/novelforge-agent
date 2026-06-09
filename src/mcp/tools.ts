@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { readFileSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   amendNovelMetadata,
@@ -164,6 +164,7 @@ function compactState(state: AgentState) {
     currentStep: state.currentStep,
     currentChapter: state.currentChapter,
     targetChapters: state.targetChapters,
+    lengthPreset: state.lengthPreset,
     plannedTotalChapters: state.plannedTotalChapters,
     completedSteps: state.completedSteps,
     files: state.files,
@@ -217,6 +218,22 @@ function projectPathFromTextResult(value: unknown): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function resolveProjectFile(projectPath: string, inputPath: string): string {
+  const target = isAbsolute(inputPath) ? resolve(inputPath) : resolve(projectPath, inputPath);
+  const rel = relative(resolve(projectPath), target);
+  if (rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(`Refusing to read content outside project: ${target}`);
+  }
+  return target;
+}
+
+async function contentFromInput(projectPath: string, content?: string, contentPath?: string): Promise<string> {
+  if (content && contentPath) throw new Error('Provide either content or contentPath, not both.');
+  if (content !== undefined) return content;
+  if (contentPath) return readFile(resolveProjectFile(projectPath, contentPath), 'utf8');
+  throw new Error('Either content or contentPath is required.');
 }
 
 export function createNovelAgentServer(options: CreateNovelAgentServerOptions): McpServer {
@@ -301,15 +318,17 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       prompt: z.string().min(1),
       language: z.enum(['zh-CN', 'en-US']).default('zh-CN'),
       outputDir: z.string().default('novels'),
+      lengthPreset: z.enum(['short', 'medium', 'long']).default('medium'),
       targetChapters: z.number().int().positive().default(5),
-      plannedTotalChapters: z.number().int().positive().default(12),
+      plannedTotalChapters: z.number().int().positive().optional(),
     },
-    async ({ prompt, language, outputDir, targetChapters, plannedTotalChapters }) => {
+    async ({ prompt, language, outputDir, lengthPreset, targetChapters, plannedTotalChapters }) => {
       const result = await createProject({
         workspaceRoot: options.workspaceRoot,
         prompt,
         language,
         outputDir,
+        lengthPreset,
         targetChapters,
         plannedTotalChapters,
       });
@@ -382,7 +401,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
 
   tool(
     'submit_step_result',
-    'Submit host-generated content for validation, saving, and workflow advancement. Returns a compact mutation result; call get_next_step afterward when the next full instruction and context are needed.',
+    'Submit host-generated content for validation, saving, and workflow advancement. Use contentPath for long chapter/review/memory payloads to avoid noisy tool-call input. Returns a compact mutation result; call get_next_step afterward when the next full instruction and context are needed.',
     {
       projectPath: z.string().min(1),
       step: z.enum([
@@ -399,10 +418,14 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
         'cross_chapter_review',
         'complete',
       ]),
-      content: z.string(),
+      content: z.string().optional(),
+      contentPath: z.string().min(1).optional(),
     },
-    async ({ projectPath, step, content }) =>
-      textResult(compactSubmitResult(await submitStepResult({ projectPath: checkedProjectPath(projectPath), step, content })))
+    async ({ projectPath, step, content, contentPath }) => {
+      const checked = checkedProjectPath(projectPath);
+      const resolvedContent = await contentFromInput(checked, content, contentPath);
+      return textResult(compactSubmitResult(await submitStepResult({ projectPath: checked, step, content: resolvedContent })));
+    }
   );
 
   tool(
@@ -439,15 +462,17 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
 
   tool(
     'save_chapter',
-    'Submit a generated chapter Markdown draft through the workflow state machine. This requires currentStep="chapter" and advances to chapter_review. Returns a compact mutation result; call get_next_step afterward for the review prompt/context.',
+    'Submit a generated chapter Markdown draft through the workflow state machine. Prefer contentPath for long chapters to avoid noisy tool-call input. This requires currentStep="chapter" and advances to chapter_review. Returns a compact mutation result; call get_next_step afterward for the review prompt/context.',
     {
       projectPath: z.string().min(1),
       chapterNumber: z.number().int().positive(),
       title: z.string().min(1),
-      content: z.string().min(1),
+      content: z.string().min(1).optional(),
+      contentPath: z.string().min(1).optional(),
     },
-    async ({ projectPath, chapterNumber, title, content }) => {
+    async ({ projectPath, chapterNumber, title, content, contentPath }) => {
       const checked = checkedProjectPath(projectPath);
+      const resolvedContent = await contentFromInput(checked, content, contentPath);
       const state = await loadState(checked);
       if (state.currentStep !== 'chapter' || state.currentChapter !== chapterNumber) {
         throw new Error(
@@ -457,7 +482,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       return textResult(compactSubmitResult(await submitStepResult({
         projectPath: checked,
         step: 'chapter',
-        content: `# ${title}\n\n${content}`,
+        content: `# ${title}\n\n${resolvedContent}`,
       })));
     }
   );
@@ -701,14 +726,17 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     {
       prompt: z.string().describe('User idea / premise / genre, in any language.'),
       chapters: z.string().optional().describe('Planning batch size as a string. Defaults to 5.'),
-      totalChapters: z.string().optional().describe('Whole-book target chapter count as a string. Defaults to 12.'),
+      length: z.enum(['short', 'medium', 'long']).optional().describe('short=12 chapters, medium=100 chapters, long=open-ended. Ask the user if omitted.'),
+      totalChapters: z.string().optional().describe('Explicit whole-book target chapter count. Overrides length when supplied.'),
     },
-    ({ prompt, chapters, totalChapters }) => ({
+    ({ prompt, chapters, length, totalChapters }) => ({
       messages: [{
         role: 'user' as const,
         content: {
           type: 'text' as const,
-          text: `Use the novelforge MCP server. Call start_novel_project with prompt="${prompt}", targetChapters=${chapters ?? '5'}, plannedTotalChapters=${totalChapters ?? '12'}, then enter the autonomous loop: read the current instruction/context, generate the requested content, call submit_step_result, then call get_next_step for the next full instruction/context unless currentStep is "complete". Show me the projectPath after start_novel_project returns.`,
+          text: totalChapters || length
+            ? `Use the novelforge MCP server. Call start_novel_project with prompt="${prompt}", targetChapters=${chapters ?? '5'}${totalChapters ? `, plannedTotalChapters=${totalChapters}` : `, lengthPreset="${length}"`}, then enter the autonomous loop: read the current instruction/context, generate the requested content, write long artifacts to a project-local file, call submit_step_result with contentPath for long chapter/review/memory/architecture payloads, then call get_next_step for the next full instruction/context unless currentStep is "complete". Show me the projectPath after start_novel_project returns.`
+            : `Before calling start_novel_project, ask me to choose novel length: short (~12 chapters), medium (~100 chapters), or long/open-ended. After I choose, call start_novel_project with prompt="${prompt}", targetChapters=${chapters ?? '5'}, and the matching lengthPreset. Do not silently default an unspecified novel to 12 chapters.`,
         },
       }],
     })
@@ -725,7 +753,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
         role: 'user' as const,
         content: {
           type: 'text' as const,
-          text: `Use the novelforge MCP server. Call get_next_step with projectPath="${projectPath}". Read the returned instruction + context and produce the requested artifact, then call submit_step_result. The submit result is compact; call get_next_step again only if you need the next full instruction/context. Show me what step was advanced.`,
+          text: `Use the novelforge MCP server. Call get_next_step with projectPath="${projectPath}". Read the returned instruction + context and produce the requested artifact. For long artifacts, write the artifact to a project-local file first and call submit_step_result with contentPath instead of inline content. The submit result is compact; call get_next_step again only if you need the next full instruction/context. Show me what step was advanced.`,
         },
       }],
     })
@@ -775,7 +803,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
         role: 'user' as const,
         content: {
           type: 'text' as const,
-          text: `Use the novelforge MCP server: call review_chapter with projectPath="${projectPath}", chapterNumber=${chapterNumber}. Read the returned instruction + context, produce the JSON chapter review, then call submit_step_result with step="chapter_review". The submit result is compact; call get_next_step only if you need the resumed full instruction/context. Summarize the findings for me.`,
+          text: `Use the novelforge MCP server: call review_chapter with projectPath="${projectPath}", chapterNumber=${chapterNumber}. Read the returned instruction + context, produce the JSON chapter review, write it to a project-local file, then call submit_step_result with step="chapter_review" and contentPath. The submit result is compact; call get_next_step only if you need the resumed full instruction/context. Summarize the findings for me.`,
         },
       }],
     })
@@ -794,7 +822,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
         role: 'user' as const,
         content: {
           type: 'text' as const,
-          text: `Use the novelforge MCP server: call revise_chapter with projectPath="${projectPath}", chapterNumber=${chapterNumber}${feedback ? `, feedback=${JSON.stringify(feedback)}` : ''}. Read the returned instruction + context, produce the revised Markdown chapter, then call submit_step_result with step="chapter_revision". The submit result is compact; call get_next_step only if you need the next full instruction/context. Confirm the previous version was archived.`,
+          text: `Use the novelforge MCP server: call revise_chapter with projectPath="${projectPath}", chapterNumber=${chapterNumber}${feedback ? `, feedback=${JSON.stringify(feedback)}` : ''}. Read the returned instruction + context, produce the revised Markdown chapter, write it to a project-local file, then call submit_step_result with step="chapter_revision" and contentPath. The submit result is compact; call get_next_step only if you need the next full instruction/context. Confirm the previous version was archived.`,
         },
       }],
     })
@@ -813,7 +841,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
         role: 'user' as const,
         content: {
           type: 'text' as const,
-          text: `Use the novelforge MCP server: call cross_chapter_review with projectPath="${projectPath}"${start && end ? `, start=${start}, end=${end}` : ''}. Read the returned instruction + context, produce the JSON cross-chapter review, then call submit_step_result with step="cross_chapter_review". The submit result is compact; call get_next_step only if you need the resumed full instruction/context. Summarize verdict and any issues.`,
+          text: `Use the novelforge MCP server: call cross_chapter_review with projectPath="${projectPath}"${start && end ? `, start=${start}, end=${end}` : ''}. Read the returned instruction + context, produce the JSON cross-chapter review, write it to a project-local file, then call submit_step_result with step="cross_chapter_review" and contentPath. The submit result is compact; call get_next_step only if you need the resumed full instruction/context. Summarize verdict and any issues.`,
         },
       }],
     })

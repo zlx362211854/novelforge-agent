@@ -1,7 +1,7 @@
 import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { AgentState } from './types.js';
+import { AgentState, NovelLengthPreset } from './types.js';
 import { makeProjectSlug } from './fileNames.js';
 
 export interface CreateProjectInput {
@@ -10,6 +10,7 @@ export interface CreateProjectInput {
   language?: AgentState['language'];
   outputDir?: string;
   targetChapters?: number;
+  lengthPreset?: NovelLengthPreset;
   plannedTotalChapters?: number;
 }
 
@@ -23,6 +24,28 @@ function assertInsideWorkspace(workspaceRoot: string, targetPath: string): void 
   const rel = relative(root, target);
   if (rel.startsWith('..') || isAbsolute(rel)) {
     throw new Error(`Refusing to write outside workspace: ${target}`);
+  }
+}
+
+const DEFAULT_LENGTH_PRESET: NovelLengthPreset = 'medium';
+const LENGTH_PRESET_TOTAL_CHAPTERS: Record<NovelLengthPreset, number> = {
+  short: 12,
+  medium: 100,
+  long: 1_000_000,
+};
+
+export function plannedTotalForLengthPreset(lengthPreset: NovelLengthPreset): number {
+  return LENGTH_PRESET_TOTAL_CHAPTERS[lengthPreset];
+}
+
+export function lengthPresetLabel(lengthPreset: NovelLengthPreset): string {
+  switch (lengthPreset) {
+    case 'short':
+      return 'short (~12 chapters)';
+    case 'medium':
+      return 'medium (~100 chapters)';
+    case 'long':
+      return 'long / open-ended';
   }
 }
 
@@ -63,11 +86,11 @@ export async function archiveStoryBible(projectPath: string, versionRelative: st
 export async function createProject(input: CreateProjectInput): Promise<CreateProjectResult> {
   const workspaceRoot = resolve(input.workspaceRoot);
   const baseDir = input.outputDir || 'novels';
-  const hasExplicitTargetChapters = input.targetChapters !== undefined;
   const targetChapters = Math.max(1, Math.floor(Number(input.targetChapters || 5)));
+  const lengthPreset = input.lengthPreset ?? DEFAULT_LENGTH_PRESET;
   const plannedTotalChapters = Math.max(
     targetChapters,
-    Math.floor(Number(input.plannedTotalChapters ?? (hasExplicitTargetChapters ? targetChapters : 12)))
+    Math.floor(Number(input.plannedTotalChapters ?? plannedTotalForLengthPreset(lengthPreset)))
   );
   const baseSlug = makeProjectSlug(input.prompt.slice(0, 48));
   const suffix = randomBytes(3).toString('hex');
@@ -83,6 +106,7 @@ export async function createProject(input: CreateProjectInput): Promise<CreatePr
     initialPrompt: input.prompt,
     language: input.language || 'zh-CN',
     targetChapters,
+    lengthPreset,
     plannedTotalChapters,
     currentStep: 'novel_metadata',
     currentChapter: 1,

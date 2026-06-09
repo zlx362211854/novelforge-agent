@@ -14,6 +14,8 @@ export type WorkflowStep =
   | 'story_bible_amend'
   | 'complete';
 
+export type NovelLengthPreset = 'short' | 'medium' | 'long';
+
 export type ReviewSeverity = 'low' | 'medium' | 'high';
 
 export interface ChapterReviewIssue {
@@ -229,6 +231,7 @@ export interface AgentState {
    * The whole-book target lives in plannedTotalChapters.
    */
   targetChapters: number;
+  lengthPreset?: NovelLengthPreset;
   plannedTotalChapters: number;
   currentStep: WorkflowStep;
   currentChapter: number;

@@ -93,7 +93,7 @@ npm test
 
 ```bash
 # 1. Start a new project
-node dist/src/cli/index.js start --prompt "写一本赛博修仙小说" --chapters 5
+node dist/src/cli/index.js start --prompt "写一本赛博修仙小说" --length medium --chapters 5
 # → prints { state, next } — next.instruction is the prompt for step 1
 
 # 2. List existing projects
@@ -173,16 +173,18 @@ NOVELFORGE_WORKSPACE = "/absolute/path/where/projects/should/live"
 ## Tool reference
 
 ### Project lifecycle
-- **`start_novel_project`** `(prompt, language?, outputDir?, targetChapters?, plannedTotalChapters?)` — create a new project under `<workspaceRoot>/<outputDir>/<prompt-slug>-<rand6>/` and return the first step's instruction. After `novel_metadata` is accepted, the directory is renamed to `<title-slug>-<same-rand6>/`; callers must continue with the returned `state.projectPath`. `targetChapters` is the per-batch planning size; MCP defaults to 5. `plannedTotalChapters` is the whole-book target; MCP defaults to 12.
+- **`start_novel_project`** `(prompt, language?, outputDir?, lengthPreset?, targetChapters?, plannedTotalChapters?)` — create a new project under `<workspaceRoot>/<outputDir>/<prompt-slug>-<rand6>/` and return the first step's instruction. After `novel_metadata` is accepted, the directory is renamed to `<title-slug>-<same-rand6>/`; callers must continue with the returned `state.projectPath`. `targetChapters` is the per-batch planning size; MCP defaults to 5. `lengthPreset` controls the whole-book scale: `short` ≈ 12 chapters, `medium` ≈ 100 chapters, `long` = open-ended serial. Direct tool calls default to `medium`; prompt helpers should ask the user to choose when length is omitted. `plannedTotalChapters` overrides the preset when supplied.
 - **`list_projects`** `(outputDir?)` — list all projects in the workspace, newest first.
 - **`get_project_status`** `(projectPath)` — compact summary: current step, chapters written, open threads, latest review verdict.
 - **`get_next_step`** `(projectPath)` — return the prompt + packed context for whatever the workflow expects next. Large prompt/context returns are bounded as `instructionPreview` / `contextPreview` + `fullContextPath` instead of giant inline fields.
 
 ### Workflow advancement
-- **`submit_step_result`** `(projectPath, step, content)` — validate `content` against the step's zod schema, persist it, advance the state machine, and return a compact mutation result. It does not include the next full prompt/context; call `get_next_step` afterward when needed. On failure the bad submission is written to `.agent-recovery/failed-*.txt` and the state does not advance.
+- **`submit_step_result`** `(projectPath, step, content? | contentPath?)` — validate the submitted artifact against the step's zod schema, persist it, advance the state machine, and return a compact mutation result. Use `contentPath` for long chapter, review, memory, or architecture payloads so the host UI shows a file path instead of a huge inline JSON/body. It does not include the next full prompt/context; call `get_next_step` afterward when needed. On failure the bad submission is written to `.agent-recovery/failed-*.txt` and the state does not advance.
 - **`get_context`** `(projectPath, purpose, chapterNumber?, start?, end?)` — build purpose-specific context without changing state. Useful when the host wants to read what the agent *would* have packed. Large contexts use the same `contextPreview` + `fullContextPath` fallback.
 
 Dynamic planning is built into the state machine: after each accepted chapter and memory card, the agent checks `plannedTotalChapters` and the highest chapter covered by `architecture/chapters.json`. If the next chapter is still inside the whole-book target but not yet planned, the next step becomes `architecture_extension`; after the host submits that JSON, generation resumes at `chapter`.
+
+Architecture extension includes pacing guardrails for long-form serials: non-final chapters that combine too many irreversible turns, such as a major truth reveal, core payoff, large power jump, major battle, new-region launch, and top-antagonist escalation, are rejected and should be split across chapters.
 
 ### Semantic actions (verb-style; safe to call any time)
 - **`generate_chapter`** `(projectPath, chapterNumber)` — return generation context for a specific chapter. Large contexts may return `contextPreview` + `fullContextPath`.
@@ -190,7 +192,7 @@ Dynamic planning is built into the state machine: after each accepted chapter an
 - **`review_chapter`** `(projectPath, chapterNumber)` — switch into a single-chapter editorial review side-track and return its prompt. Large prompts/contexts may return `instructionPreview` / `contextPreview` + `fullContextPath`. After `submit_step_result(step="chapter_review")`, the workflow resumes its prior step automatically.
 - **`revise_chapter`** `(projectPath, chapterNumber, feedback?)` — switch into a chapter-revision side-track. Large prompts/contexts may return `instructionPreview` / `contextPreview` + `fullContextPath`. Submitting `chapter_revision` content auto-archives the previous version under `chapters/.versions/`.
 - **`cross_chapter_review`** `(projectPath, start?, end?)` — switch into a cross-chapter audit side-track over the given range (defaults to all generated chapters). Large prompts/contexts may return `instructionPreview` / `contextPreview` + `fullContextPath`.
-- **`save_chapter`** `(projectPath, chapterNumber, title, content)` — submit the current chapter through the state machine; it requires `currentStep="chapter"` and then advances to mandatory `chapter_review`. The returned MCP payload is compact and does not echo the chapter or review context.
+- **`save_chapter`** `(projectPath, chapterNumber, title, content? | contentPath?)` — submit the current chapter through the state machine; it requires `currentStep="chapter"` and then advances to mandatory `chapter_review`. Prefer `contentPath` for real chapters. The returned MCP payload is compact and does not echo the chapter or review context.
 
 ### Project operations
 - **`amend_novel_metadata`** `(projectPath, content?, title?, genre?, premise?, language?, style?, coreCast?, reason?)` — update `novel.json`; when `title` changes, the project directory is renamed and the returned `projectPath` must be used afterward.

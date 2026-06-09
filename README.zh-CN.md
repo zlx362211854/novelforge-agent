@@ -93,7 +93,7 @@ npm test
 
 ```bash
 # 1. 创建新项目
-node dist/src/cli/index.js start --prompt "写一本赛博修仙小说" --chapters 5
+node dist/src/cli/index.js start --prompt "写一本赛博修仙小说" --length medium --chapters 5
 # → 输出 { state, next }，next.instruction 是第 1 步的提示词
 
 # 2. 列出已有项目
@@ -174,17 +174,19 @@ NOVELFORGE_WORKSPACE = "/absolute/path/where/projects/should/live"
 
 ### 项目生命周期
 
-- **`start_novel_project`** `(prompt, language?, outputDir?, targetChapters?, plannedTotalChapters?)` — 在 `<workspaceRoot>/<outputDir>/<prompt-slug>-<rand6>/` 下创建项目，并返回第一步 instruction。`novel_metadata` 被接受后，目录会重命名为 `<title-slug>-<same-rand6>/`；调用方后续必须使用返回的 `state.projectPath`。`targetChapters` 是每批规划章节数，MCP 默认 5；`plannedTotalChapters` 是全书目标章节数，MCP 默认 12。
+- **`start_novel_project`** `(prompt, language?, outputDir?, lengthPreset?, targetChapters?, plannedTotalChapters?)` — 在 `<workspaceRoot>/<outputDir>/<prompt-slug>-<rand6>/` 下创建项目，并返回第一步 instruction。`novel_metadata` 被接受后，目录会重命名为 `<title-slug>-<same-rand6>/`；调用方后续必须使用返回的 `state.projectPath`。`targetChapters` 是每批规划章节数，MCP 默认 5。`lengthPreset` 控制全书规模：`short` 约 12 章，`medium` 约 100 章，`long` 为开放式长篇。直接调用 tool 默认 `medium`；prompt helper 在用户未指定篇幅时应先让用户选择。显式传入 `plannedTotalChapters` 时会覆盖 preset。
 - **`list_projects`** `(outputDir?)` — 按更新时间倒序列出工作区内所有项目。
 - **`get_project_status`** `(projectPath)` — 返回紧凑状态摘要：当前步骤、已写章节、开放伏笔、最新 review 结果等。
 - **`get_next_step`** `(projectPath)` — 返回当前工作流下一步的 prompt 和打包上下文。大 prompt/context 会以 `instructionPreview` / `contextPreview` + `fullContextPath` 返回，不会把巨大字段直接塞进 MCP tool result。
 
 ### 工作流推进
 
-- **`submit_step_result`** `(projectPath, step, content)` — 校验 `content` 是否符合当前 step 的 zod schema，保存产物，推进状态机，并返回紧凑 mutation result。它不包含下一步完整 prompt/context；需要时请随后调用 `get_next_step`。失败提交会写入 `.agent-recovery/failed-*.txt`，状态不会推进。
+- **`submit_step_result`** `(projectPath, step, content? | contentPath?)` — 校验提交产物是否符合当前 step 的 zod schema，保存产物，推进状态机，并返回紧凑 mutation result。长章节、review、memory、architecture payload 建议先写入项目文件，再用 `contentPath` 提交，这样宿主 UI 只显示文件路径，不会展开巨大正文或 JSON。它不包含下一步完整 prompt/context；需要时请随后调用 `get_next_step`。失败提交会写入 `.agent-recovery/failed-*.txt`，状态不会推进。
 - **`get_context`** `(projectPath, purpose, chapterNumber?, start?, end?)` — 在不改变状态的情况下构建指定用途的上下文。适合宿主查看“如果现在生成，会拿到什么上下文”。大上下文同样使用 `contextPreview` + `fullContextPath`。
 
 动态规划内置在状态机里：每章通过 review 并提交 memory card 后，NovelForge 会检查 `plannedTotalChapters` 和 `architecture/chapters.json` 中已有的最高规划章节。如果下一章仍在全书目标内，但尚未被规划，下一步会变成 `architecture_extension`；宿主提交续规划 JSON 后，继续进入 `chapter`。
+
+续规划带有长篇节奏保护：非终章如果同时塞入重大真相、核心回收、大幅升级、强战斗、新地图开启、顶级反派升级等过多不可逆转折，会被拒绝，应该拆分到多章。
 
 ### 语义动作工具
 
@@ -193,7 +195,7 @@ NOVELFORGE_WORKSPACE = "/absolute/path/where/projects/should/live"
 - **`review_chapter`** `(projectPath, chapterNumber)` — 进入单章编辑审稿支线，并返回审稿 prompt。大 prompt/context 可能返回 `instructionPreview` / `contextPreview` + `fullContextPath`。之后通过 `submit_step_result(step="chapter_review")` 恢复原流程。
 - **`revise_chapter`** `(projectPath, chapterNumber, feedback?)` — 进入章节修订支线。大 prompt/context 可能返回 `instructionPreview` / `contextPreview` + `fullContextPath`。提交 `chapter_revision` 后，旧版本会自动归档到 `chapters/.versions/`。
 - **`cross_chapter_review`** `(projectPath, start?, end?)` — 进入跨章节审查支线，默认覆盖所有已生成章节。大 prompt/context 可能返回 `instructionPreview` / `contextPreview` + `fullContextPath`。
-- **`save_chapter`** `(projectPath, chapterNumber, title, content)` — 通过状态机提交当前章节；要求 `currentStep="chapter"`，提交后进入强制 `chapter_review`。返回的 MCP payload 是紧凑结果，不回显章节正文或 review 上下文。
+- **`save_chapter`** `(projectPath, chapterNumber, title, content? | contentPath?)` — 通过状态机提交当前章节；要求 `currentStep="chapter"`，提交后进入强制 `chapter_review`。真实章节建议用 `contentPath` 提交。返回的 MCP payload 是紧凑结果，不回显章节正文或 review 上下文。
 
 ### 项目操作
 

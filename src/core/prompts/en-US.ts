@@ -130,6 +130,9 @@ ${strictJsonOutputRules()}`,
 }
 
 function buildArchitecturePrompt(input: PromptBuildInput): BuiltPrompt {
+const wholeBookTarget = input.state.lengthPreset === 'long'
+  ? 'open-ended long-form serial with no fixed final chapter; define long-range direction and the first planning batch only'
+  : `about ${input.state.plannedTotalChapters ?? input.state.targetChapters} chapters`;
 return {
       purpose: 'architecture',
       expectedFormat: 'JSON matching ArchitecturePayloadSchema',
@@ -139,7 +142,7 @@ return {
 ${input.state.initialPrompt}
 
 ## Goals
-- Whole-book target is about ${input.state.plannedTotalChapters ?? input.state.targetChapters} chapters; generate only the first ${input.state.targetChapters} chapter architectures in this first batch.
+- Whole-book target: ${wholeBookTarget}; generate only the first ${input.state.targetChapters} chapter architectures in this first batch.
 - The full-book architecture should define the long-term main line and ending direction.
 - Volume architecture should define phase conflict, climax, and volume-end hooks.
 - Chapter architecture must cover only what should happen in that chapter and must not reveal later concrete events early.
@@ -194,6 +197,9 @@ function buildArchitectureExtensionPrompt(input: PromptBuildInput): BuiltPrompt 
   const start = input.state.currentChapter;
   const total = input.state.plannedTotalChapters ?? input.state.targetChapters;
   const end = Math.min(total, start + input.state.targetChapters - 1);
+  const totalLabel = input.state.lengthPreset === 'long'
+    ? 'is an open-ended long-form serial with no fixed final chapter'
+    : `ends at chapter ${total}`;
   return {
     purpose: 'architecture_extension',
     expectedFormat: 'JSON matching ArchitectureExtensionPayloadSchema',
@@ -202,7 +208,7 @@ function buildArchitectureExtensionPrompt(input: PromptBuildInput): BuiltPrompt 
 ## Extension Range
 - Start at chapter ${start}.
 - This batch should plan through chapter ${end} at most.
-- The whole-book target ends at chapter ${total}.
+- The whole-book target ${totalLabel}.
 
 ## Extension Principles
 - Do not rewrite existing chapter architecture; append only new chapter architecture.
@@ -210,6 +216,8 @@ function buildArchitectureExtensionPrompt(input: PromptBuildInput): BuiltPrompt 
 - If the next chapters enter a new volume, add volumes and volumePacing. If they remain in an existing volume, you may provide an updated pacing board for that volume.
 - If the full-book direction needs adjustment because of written material, include fullUpdate. fullUpdate must be a complete replacement for architecture/full.md, not a change note.
 - Chapter architecture must cover only what should happen in that chapter and must not reveal later concrete events early.
+- Long-form pacing guardrail: for non-final chapters, do not pack major truth reveals, core foreshadow payoffs, large power jumps, major antagonist confrontations, and new-region launches into the same chapter. Unless it is a volume climax, each chapter should carry at most 1-2 irreversible major turns.
+- If a chapter feels like a season finale, split it across chapters: crisis/discovery, then cost/choice, then payoff/transition.
 
 ${input.context ? `## Existing Context\n${input.context}\n` : ''}## Output Requirements
 Output valid JSON only, in this shape:
@@ -252,6 +260,7 @@ Rules:
 - chapters.length should be ${end - start + 1} unless the book has reached its ending.
 - requiredBeats must include at least one concrete, actionable beat.
 - volumeId must reference an existing volume id or a volume id supplied in this response.
+- A non-final chapter that combines major truth, core payoff, consecutive power jumps, major battle, new region, or final-antagonist escalation may be rejected; split that pacing proactively.
 ${strictJsonOutputRules()}`,
     };
 }
@@ -424,11 +433,13 @@ return {
 
 ${input.context ? `## Review Context\n${input.context}\n` : ''}## Review Focus
 - This is a mandatory chapter acceptance gate. If any acceptance item fails, status must be "issues_found" and the workflow must revise before continuing.
+- Review skeptically. Do not self-justify the chapter to advance the workflow; if there is a concrete actionable fix, return issues_found.
 - Whether every requiredBeat is fulfilled; missing beats must appear in acceptance.requiredBeats.missingBeats.
 - Whether this chapter advances the main line, character state, or active foreshadow threads. If it is static, at least one of narrativeProgress/characterProgress/foreshadowProgress must fail.
 - Whether it violates the story bible, character state table, volume pacing board, or prior memory.
 - Whether it violates the Style Guide: narrative voice, sentence density, genre diction, dialogue rules, or prohibited patterns.
 - Whether it violates Style Guide.proseRhythm: excessive short-sentence density, consecutive one-sentence paragraphs, fake rhythm through line breaks, overly direct interior explanation, or repeated sentence patterns.
+- Whether it shows obvious AI-prose artifacts: repeated "not X but Y" constructions, too many "as if" phrases, explanatory summary sentences, modern jokes that break genre immersion, or dialogue overloaded with exposition.
 - Whether the ending has a clear hook that matches the chapter architecture endHookFocus.
 - Whether it repeats prior chapter beats, conflict patterns, reveals, or dialogue functions.
 - Character voice, motivation, and state vs the story bible and prior memory.
@@ -492,6 +503,8 @@ Rules:
 - If there are no issues, use status "clean" with an empty issues array.
 - Otherwise use status "issues_found".
 - status may be "clean" only when every acceptance item is "pass".
+- status "clean" requires an empty issues array; any issue requires status "issues_found".
+- If acceptance.requiredBeats.missingBeats is not empty, requiredBeats.status must be "fail".
 - If any acceptance item is "fail", include a matching issue with a concrete fix.
 - evidence must be specific; do not write "possibly" or "maybe".
 ${strictJsonOutputRules()}`,

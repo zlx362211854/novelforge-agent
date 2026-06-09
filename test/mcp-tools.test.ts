@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createNovelAgentServer } from '../src/mcp/tools.js';
@@ -80,7 +80,8 @@ test('MCP start_novel_project defaults to batch planning with a larger whole-boo
     }));
 
     assert.equal(result.state.targetChapters, 5);
-    assert.equal(result.state.plannedTotalChapters, 12);
+    assert.equal(result.state.lengthPreset, 'medium');
+    assert.equal(result.state.plannedTotalChapters, 100);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -165,11 +166,12 @@ test('MCP save_chapter submits through workflow and advances to chapter_review',
 
     const server = createNovelAgentServer({ workspaceRoot: root });
     const longContent = `${'陈序沿着站台往前走，雨声盖住旧钟。'.repeat(2000)}\n\nUNIQUE_LONG_CHAPTER_MARKER`;
+    await writeFile(join(projectPath, '.agent-recovery/chapter-001-draft.md'), longContent, 'utf8');
     const saveRaw = (await toolHandler(server, 'save_chapter')({
       projectPath,
       chapterNumber: 1,
       title: '旧车站',
-      content: longContent,
+      contentPath: '.agent-recovery/chapter-001-draft.md',
     }) as { content: Array<{ text: string }> }).content[0].text;
     const saveResult = JSON.parse(saveRaw);
 

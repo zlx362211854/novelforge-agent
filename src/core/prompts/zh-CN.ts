@@ -130,6 +130,9 @@ ${strictJsonOutputRules()}`,
 }
 
 function buildArchitecturePrompt(input: PromptBuildInput): BuiltPrompt {
+const wholeBookTarget = input.state.lengthPreset === 'long'
+  ? '开放式长篇，不设固定终章；当前只做长期方向和首批阶段规划'
+  : `约 ${input.state.plannedTotalChapters ?? input.state.targetChapters} 章`;
 return {
     purpose: 'architecture',
     expectedFormat: 'JSON matching ArchitecturePayloadSchema',
@@ -139,7 +142,7 @@ return {
 ${input.state.initialPrompt}
 
 ## 目标
-- 全本目标约 ${input.state.plannedTotalChapters ?? input.state.targetChapters} 章；本次只生成首批 ${input.state.targetChapters} 个章架构。
+- 全本目标：${wholeBookTarget}；本次只生成首批 ${input.state.targetChapters} 个章架构。
 - 全本架构负责长期主线和结局方向。
 - 卷架构负责阶段冲突、高潮和卷尾钩子。
 - 章架构必须只覆盖本章应发生的内容，不要提前泄露后续具体事件。
@@ -194,6 +197,9 @@ function buildArchitectureExtensionPrompt(input: PromptBuildInput): BuiltPrompt 
   const start = input.state.currentChapter;
   const total = input.state.plannedTotalChapters ?? input.state.targetChapters;
   const end = Math.min(total, start + input.state.targetChapters - 1);
+  const totalLabel = input.state.lengthPreset === 'long'
+    ? '开放式长篇，不设固定终章'
+    : `到第 ${total} 章结束`;
   return {
     purpose: 'architecture_extension',
     expectedFormat: 'JSON matching ArchitectureExtensionPayloadSchema',
@@ -202,7 +208,7 @@ function buildArchitectureExtensionPrompt(input: PromptBuildInput): BuiltPrompt 
 ## 续规划范围
 - 从第 ${start} 章开始。
 - 本批最多规划到第 ${end} 章。
-- 全本目标到第 ${total} 章结束。
+- 全本目标${totalLabel}。
 
 ## 续规划原则
 - 不要改写已经存在的章节架构；只追加新的 chapter architecture。
@@ -210,6 +216,8 @@ function buildArchitectureExtensionPrompt(input: PromptBuildInput): BuiltPrompt 
 - 如果后续章节进入新卷，可以新增 volumes 和 volumePacing；如果仍在旧卷，可以补充/更新该卷节奏板。
 - 如果全本方向因已写内容需要微调，可以输出 fullUpdate；fullUpdate 必须是可覆盖 architecture/full.md 的完整更新版，而不是变更说明。
 - 章架构必须只覆盖本章应发生的内容，不要提前泄露更后面的具体事件。
+- 长篇节奏保护：非全本终章不要把“大真相揭示、核心伏笔回收、主角大幅升级、强反派正面对决、新地图开启”集中塞进同一章；除非是卷高潮，否则每章最多承载 1-2 个不可逆大转折。
+- 如果一章看起来像季终集，请拆分到多章：先危机/发现，再代价/选择，再回收/转场。
 
 ${input.context ? `## 已有上下文\n${input.context}\n` : ''}## 输出要求
 请只输出合法 JSON，格式如下：
@@ -252,6 +260,7 @@ ${input.context ? `## 已有上下文\n${input.context}\n` : ''}## 输出要求
 - chapters.length 建议为 ${end - start + 1}，除非已经到全本结尾。
 - requiredBeats 至少 1 条，且必须具体可执行。
 - volumeId 必须引用已有或本次新增 volumes 中存在的 id。
+- 非终章如果同时包含重大真相、核心回收、连续升级、强战斗、新地图或最终反派升级，提交会被拒绝；请主动拆分节奏。
 ${strictJsonOutputRules()}`,
   };
 }
@@ -423,11 +432,13 @@ return {
 
 ${input.context ? `## 审阅上下文\n${input.context}\n` : ''}## 审阅重点
 - 这是强制章节验收门槛：只要任一验收项 fail，status 必须是 "issues_found"，不能进入下一章。
+- 采取怀疑式审稿：不要为了推进流程而自证清白；只要存在可执行修复建议，就应该输出 issues_found。
 - requiredBeats 是否全部完成；缺失项必须写入 acceptance.requiredBeats.missingBeats。
 - 本章是否推进主线、人物状态或活跃伏笔；如果完全原地踏步，narrativeProgress/characterProgress/foreshadowProgress 至少一项必须 fail。
 - 是否违反故事圣经、角色状态表、卷级节奏板或历史记忆。
 - 是否违反 Style Guide：叙事声音、句式密度、题材词汇、对白规则和禁用模式。
 - 是否违反 Style Guide.proseRhythm：短句密度过高、连续单句短段、靠换行制造伪节奏、心理解释过直白、重复同一句式。
+- 是否出现明显 AI 文痕迹：反复使用“不是X，而是Y”、过多“像是”、解释性总结句、现代吐槽破坏题材沉浸、对话承担设定说明过重。
 - 章末是否有清晰钩子，且符合本章 endHookFocus。
 - 是否重复之前章节已经完成的桥段、冲突结构、信息揭示或对话功能。
 - 人物声音、动机、状态是否符合故事圣经与历史记忆。
@@ -491,6 +502,8 @@ ${input.context ? `## 审阅上下文\n${input.context}\n` : ''}## 审阅重点
 - 没有问题时 status 为 "clean"，issues 输出空数组。
 - 有问题时 status 为 "issues_found"。
 - 只有所有 acceptance 项都是 "pass" 时，status 才能为 "clean"。
+- status 为 "clean" 时 issues 必须为空；issues 非空时 status 必须为 "issues_found"。
+- acceptance.requiredBeats.missingBeats 非空时 requiredBeats.status 必须为 "fail"。
 - 任一 acceptance 项为 "fail" 时，必须在 issues 中写出对应问题与修复建议。
 - evidence 必须具体，不能写"疑似"、"可能"。
 ${strictJsonOutputRules()}`,
