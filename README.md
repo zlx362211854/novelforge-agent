@@ -150,7 +150,7 @@ Reload Claude Code and type:
 
 > 我想写一本赛博修仙小说
 
-Claude will discover the `start_novel_project` tool, call it, get back the first prompt for `novel_metadata`, generate the JSON, call `submit_step_result`, get back the next prompt, and continue autonomously until `complete`.
+Claude will discover the `start_novel_project` tool, call it, get back the first prompt for `novel_metadata`, generate the JSON, call `submit_step_result`, then call `get_next_step` for the next full prompt/context and continue until `complete`. MCP write tools return compact mutation results so long chapters are not echoed back through tool output.
 
 ### Codex CLI
 
@@ -177,7 +177,7 @@ NOVELFORGE_WORKSPACE = "/absolute/path/where/projects/should/live"
 - **`get_next_step`** `(projectPath)` — return the prompt + packed context for whatever the workflow expects next.
 
 ### Workflow advancement
-- **`submit_step_result`** `(projectPath, step, content)` — validate `content` against the step's zod schema, persist it, advance the state machine. On failure the bad submission is written to `.agent-recovery/failed-*.txt` and the state does not advance.
+- **`submit_step_result`** `(projectPath, step, content)` — validate `content` against the step's zod schema, persist it, advance the state machine, and return a compact mutation result. It does not include the next full prompt/context; call `get_next_step` afterward when needed. On failure the bad submission is written to `.agent-recovery/failed-*.txt` and the state does not advance.
 - **`get_context`** `(projectPath, purpose, chapterNumber?, start?, end?)` — build purpose-specific context without changing state. Useful when the host wants to read what the agent *would* have packed.
 
 Dynamic planning is built into the state machine: after each accepted chapter and memory card, the agent checks `plannedTotalChapters` and the highest chapter covered by `architecture/chapters.json`. If the next chapter is still inside the whole-book target but not yet planned, the next step becomes `architecture_extension`; after the host submits that JSON, generation resumes at `chapter`.
@@ -188,7 +188,7 @@ Dynamic planning is built into the state machine: after each accepted chapter an
 - **`review_chapter`** `(projectPath, chapterNumber)` — switch into a single-chapter editorial review side-track and return its prompt. After `submit_step_result(step="chapter_review")`, the workflow resumes its prior step automatically.
 - **`revise_chapter`** `(projectPath, chapterNumber, feedback?)` — switch into a chapter-revision side-track. Submitting `chapter_revision` content auto-archives the previous version under `chapters/.versions/`.
 - **`cross_chapter_review`** `(projectPath, start?, end?)` — switch into a cross-chapter audit side-track over the given range (defaults to all generated chapters).
-- **`save_chapter`** `(projectPath, chapterNumber, title, content)` — submit the current chapter through the state machine; it requires `currentStep="chapter"` and then advances to mandatory `chapter_review`.
+- **`save_chapter`** `(projectPath, chapterNumber, title, content)` — submit the current chapter through the state machine; it requires `currentStep="chapter"` and then advances to mandatory `chapter_review`. The returned MCP payload is compact and does not echo the chapter or review context.
 
 ### Project operations
 - **`amend_story_bible`** `(projectPath, content, reason?)` — replace `story-bible.md`, archive the previous version, and rebuild the bible index.

@@ -121,17 +121,62 @@ test('MCP save_chapter submits through workflow and advances to chapter_review',
     });
 
     const server = createNovelAgentServer({ workspaceRoot: root });
-    await toolHandler(server, 'save_chapter')({
+    const longContent = `${'陈序沿着站台往前走，雨声盖住旧钟。'.repeat(300)}\n\nUNIQUE_LONG_CHAPTER_MARKER`;
+    const saveRaw = (await toolHandler(server, 'save_chapter')({
       projectPath,
       chapterNumber: 1,
       title: '旧车站',
-      content: '陈序下车，旧钟声在雨里敲响。',
-    });
+      content: longContent,
+    }) as { content: Array<{ text: string }> }).content[0].text;
+    const saveResult = JSON.parse(saveRaw);
+
+    assert.equal(saveResult.validation.ok, true);
+    assert.equal(saveResult.state.currentStep, 'chapter_review');
+    assert.equal(saveResult.next.currentStep, 'chapter_review');
+    assert.equal(saveResult.next.contextLength > 0, true);
+    assert.equal('context' in saveResult.next, false);
+    assert.equal('instruction' in saveResult.next, false);
+    assert.equal(saveRaw.includes('UNIQUE_LONG_CHAPTER_MARKER'), false);
+    assert.equal(saveRaw.length < 5000, true);
 
     const nextState = await loadState(projectPath);
     assert.equal(nextState.currentStep, 'chapter_review');
     assert.equal(nextState.files['chapter-1'], 'chapters/001.md');
-    assert.match(await readFile(join(projectPath, 'chapters/001.md'), 'utf8'), /旧钟声/);
+    assert.match(await readFile(join(projectPath, 'chapters/001.md'), 'utf8'), /UNIQUE_LONG_CHAPTER_MARKER/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('MCP submit_step_result returns compact mutation output without next context', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nf-mcp-submit-'));
+  try {
+    const server = createNovelAgentServer({ workspaceRoot: root });
+    const start = parseTextResult(await toolHandler(server, 'start_novel_project')({
+      prompt: '写一本现实小说',
+      targetChapters: 1,
+      plannedTotalChapters: 1,
+    }));
+
+    const raw = (await toolHandler(server, 'submit_step_result')({
+      projectPath: start.state.projectPath,
+      step: 'novel_metadata',
+      content: JSON.stringify({
+        title: '归途',
+        genre: '现实',
+        premise: '一个人回乡处理旧事。',
+        language: 'zh-CN',
+        style: '细腻',
+        coreCast: [{ name: '陈序', role: 'protagonist', description: '返乡者' }],
+      }),
+    }) as { content: Array<{ text: string }> }).content[0].text;
+    const result = JSON.parse(raw);
+
+    assert.equal(result.validation.ok, true);
+    assert.equal(result.state.currentStep, 'story_bible');
+    assert.equal(result.next.currentStep, 'story_bible');
+    assert.equal('context' in result.next, false);
+    assert.equal('instruction' in result.next, false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
