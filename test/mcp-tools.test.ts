@@ -203,6 +203,31 @@ test('MCP save_chapter submits through workflow and advances to chapter_review',
     const fullContext = JSON.parse(await readFile(next.fullContextPath, 'utf8'));
     assert.match(fullContext.instruction, /UNIQUE_LONG_CHAPTER_MARKER/);
     assert.match(fullContext.context, /UNIQUE_LONG_CHAPTER_MARKER/);
+
+    const logRaw = await readFile(join(projectPath, '.agent-logs/events.jsonl'), 'utf8');
+    assert.equal(logRaw.includes('UNIQUE_LONG_CHAPTER_MARKER'), false);
+
+    const loggedEvents = logRaw.trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(loggedEvents.some((event) => event.type === 'tool_call_start' && event.tool === 'save_chapter'), true);
+    assert.equal(loggedEvents.some((event) => event.type === 'tool_call_end' && event.tool === 'save_chapter'), true);
+    assert.equal(loggedEvents.some((event) => event.type === 'state_transition'), true);
+
+    const recent = parseTextResult(await toolHandler(server, 'get_recent_events')({ projectPath, limit: 20 }));
+    assert.equal(recent.events.some((event: any) => event.type === 'state_transition'), true);
+
+    const runs = parseTextResult(await toolHandler(server, 'list_runs')({ projectPath, limit: 20 }));
+    const saveRun = runs.runs.find((run: any) => run.tool === 'save_chapter');
+    assert.equal(saveRun.status, 'ok');
+    assert.equal(typeof saveRun.runId, 'string');
+
+    const runLog = parseTextResult(await toolHandler(server, 'get_run_log')({ projectPath, runId: saveRun.runId }));
+    assert.equal(runLog.events.some((event: any) => event.type === 'tool_call_start'), true);
+    assert.equal(runLog.events.some((event: any) => event.type === 'tool_call_end'), true);
+
+    const artifact = parseTextResult(await toolHandler(server, 'get_artifact_summary')({ projectPath, path: 'chapters/001.md' }));
+    assert.equal(artifact.path, 'chapters/001.md');
+    assert.equal(artifact.bytes > 0, true);
+    assert.match(artifact.sha256, /^[a-f0-9]{64}$/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

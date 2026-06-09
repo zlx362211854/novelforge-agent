@@ -206,6 +206,15 @@ NOVELFORGE_WORKSPACE = "/absolute/path/where/projects/should/live"
 - **`delete_chapter`** `(projectPath, chapterNumber)` — 删除章节、记忆卡、审稿、归档版本和索引条目。
 - **`redo_step`** `(projectPath, step, chapterNumber?)` — 回滚到指定步骤，重新生成相关产物。
 
+### 可观测性
+
+- **`get_recent_events`** `(projectPath, limit?, type?)` — 读取 `.agent-logs/events.jsonl` 中最近的审计事件。
+- **`list_runs`** `(projectPath, limit?)` — 按 `runId` 聚合最近的 MCP tool 调用，包含状态和耗时。
+- **`get_run_log`** `(projectPath, runId, limit?)` — 查看某一次 MCP tool 调用的完整审计事件。
+- **`get_artifact_summary`** `(projectPath, path)` — 返回项目产物的文件大小、修改时间和 sha256，不暴露完整内容。
+
+NovelForge 会在项目目录内记录 tool 调用、tool 错误、被拒绝的提交和工作流状态变更。章节 `content`、prompt、instruction、context、MCP text payload 这类长文本或敏感文本只记录 `{ length, sha256 }` 摘要，不写入原文。给宿主看的 MCP 返回保持紧凑；必须落盘的大上下文会保存到 `.agent-recovery/mcp-context/`。
+
 ### 检索
 
 - **`retrieve`** `(projectPath, query, topK?, types?, chapterStart?, chapterEnd?)` — 对章节段落、故事圣经 H2 片段、记忆卡做 BM25 风格词法检索。内置 CJK bigram 分词器，支持中英文混合查询，不依赖外部 embedding 模型。
@@ -239,6 +248,8 @@ novels/<title-slug>-<rand6>/
 ├── .index/
 │   ├── lexical.json              # MiniSearch 序列化索引
 │   └── manifest.json             # 外部文档 id 列表
+├── .agent-logs/
+│   └── events.jsonl              # tool 调用和状态变更的紧凑审计日志
 └── .agent-recovery/
     ├── failed-*.txt              # 被拒绝的提交，便于排查
     ├── mcp-context/*.json        # MCP 大上下文结果的完整落盘 payload
@@ -295,7 +306,7 @@ src/
 │   └── workflow.ts               # dispatcher、contextForStep、side-track、submit
 ├── mcp/
 │   ├── server.ts                 # stdio 入口
-│   └── tools.ts                  # 21 个 MCP tools + 10 个 MCP prompts
+│   └── tools.ts                  # 25 个 MCP tools + 10 个 MCP prompts
 └── cli/
     └── index.ts                  # 等价 CLI 子命令
 ```

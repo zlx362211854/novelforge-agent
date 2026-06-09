@@ -37,6 +37,7 @@ export async function ensureProjectDirectories(projectPath: string): Promise<voi
   await mkdir(join(projectPath, 'reviews/chapter'), { recursive: true });
   await mkdir(join(projectPath, 'reviews/cross'), { recursive: true });
   await mkdir(join(projectPath, '.agent-recovery'), { recursive: true });
+  await mkdir(join(projectPath, '.agent-logs'), { recursive: true });
 }
 
 export async function archiveChapterVersion(projectPath: string, chapterRelative: string, versionRelative: string): Promise<string | undefined> {

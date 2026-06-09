@@ -5,6 +5,7 @@ import { BuildContextInput, buildContext } from './contextBuilder.js';
 import { buildPromptForStep } from './prompts.js';
 import { loadState, saveJsonFile, saveRecoveryFile, saveState } from './projectStore.js';
 import { STEP_HANDLERS } from './steps/index.js';
+import { summarizeForLog, tryAppendAgentEvent } from './agentLog.js';
 
 export interface SubmitStepInput {
   projectPath: string;
@@ -205,6 +206,13 @@ export async function submitStepResult(input: SubmitStepInput): Promise<SubmitSt
 
   if (state.currentStep !== input.step) {
     const recoveryPath = await saveRecoveryFile(state.projectPath, input.step, input.content);
+    await tryAppendAgentEvent(state.projectPath, {
+      type: 'submission_rejected',
+      level: 'warn',
+      inputSummary: summarizeForLog({ step: input.step, content: input.content }),
+      recoveryPath,
+      message: `Expected step ${state.currentStep}, got ${input.step}`,
+    });
     return {
       validation: { ok: false, message: `Expected step ${state.currentStep}, got ${input.step}` },
       state,
@@ -216,6 +224,12 @@ export async function submitStepResult(input: SubmitStepInput): Promise<SubmitSt
 
   const handler = STEP_HANDLERS[input.step];
   if (!handler) {
+    await tryAppendAgentEvent(state.projectPath, {
+      type: 'submission_rejected',
+      level: 'warn',
+      inputSummary: summarizeForLog({ step: input.step, content: input.content }),
+      message: `Step ${input.step} accepts no submission`,
+    });
     return {
       validation: { ok: false, message: `Step ${input.step} accepts no submission` },
       state,
@@ -233,6 +247,22 @@ export async function submitStepResult(input: SubmitStepInput): Promise<SubmitSt
         : await resumeFromSideTrack(state, fileEntries);
 
     await saveState(nextState);
+    await tryAppendAgentEvent(nextState.projectPath, {
+      type: 'state_transition',
+      stateTransition: {
+        from: {
+          currentStep: state.currentStep,
+          currentChapter: state.currentChapter,
+          projectPath: state.projectPath,
+        },
+        to: {
+          currentStep: nextState.currentStep,
+          currentChapter: nextState.currentChapter,
+          projectPath: nextState.projectPath,
+        },
+      },
+      savedPaths: result.savedPaths,
+    });
     return {
       validation: { ok: true, message: 'Saved' },
       state: nextState,
@@ -241,6 +271,16 @@ export async function submitStepResult(input: SubmitStepInput): Promise<SubmitSt
     };
   } catch (error) {
     const recoveryPath = await saveRecoveryFile(state.projectPath, input.step, input.content);
+    await tryAppendAgentEvent(state.projectPath, {
+      type: 'submission_error',
+      level: 'error',
+      inputSummary: summarizeForLog({ step: input.step, content: input.content }),
+      recoveryPath,
+      error: {
+        name: (error as Error).name,
+        message: (error as Error).message,
+      },
+    });
     return {
       validation: { ok: false, message: (error as Error).message },
       state,

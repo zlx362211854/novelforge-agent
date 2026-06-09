@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { readFileSync } from 'node:fs';
@@ -13,15 +14,20 @@ import {
   deleteChapter,
   forkProject,
   getNextStep,
+  getArtifactSummary,
+  listAgentRuns,
   getProjectStatus,
   listProjects,
   listStoryBibleVersions,
   loadState,
   loadThreads,
+  readAgentEvents,
   redoStep,
   requestSideTrack,
   retrieve,
+  summarizeForLog,
   submitStepResult,
+  tryAppendAgentEvent,
   updateThread,
 } from '../core/index.js';
 import type { AgentState, StepInstruction, SubmitStepResult } from '../core/index.js';
@@ -58,6 +64,8 @@ function textResult(value: unknown) {
     }],
   };
 }
+
+type TextToolResult = ReturnType<typeof textResult>;
 
 function safeLabel(label: string): string {
   return label.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'context';
@@ -182,6 +190,35 @@ function compactSubmitResult(result: SubmitStepResult) {
   };
 }
 
+function pathFromObject(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const obj = value as Record<string, unknown>;
+  for (const key of ['projectPath', 'sourceProjectPath', 'newProjectPath', 'oldProjectPath']) {
+    if (typeof obj[key] === 'string') return obj[key];
+  }
+  if (obj.state && typeof obj.state === 'object') {
+    const statePath = (obj.state as Record<string, unknown>).projectPath;
+    if (typeof statePath === 'string') return statePath;
+  }
+  if (obj.next && typeof obj.next === 'object') {
+    const nextPath = (obj.next as Record<string, unknown>).projectPath;
+    if (typeof nextPath === 'string') return nextPath;
+  }
+  return undefined;
+}
+
+function projectPathFromTextResult(value: unknown): string | undefined {
+  const direct = pathFromObject(value);
+  if (direct) return direct;
+  try {
+    const text = (value as { content?: Array<{ text?: string }> }).content?.[0]?.text;
+    if (!text) return undefined;
+    return pathFromObject(JSON.parse(text));
+  } catch {
+    return undefined;
+  }
+}
+
 export function createNovelAgentServer(options: CreateNovelAgentServerOptions): McpServer {
   function checkedProjectPath(projectPath: string): string {
     assertProjectPath(options.workspaceRoot, projectPath);
@@ -193,12 +230,71 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     return outputDir;
   }
 
+  function logProjectPath(projectPath: string | undefined): string | undefined {
+    if (!projectPath) return undefined;
+    try {
+      assertProjectPath(options.workspaceRoot, projectPath);
+      return projectPath;
+    } catch {
+      return undefined;
+    }
+  }
+
   const server = new McpServer({
     name: 'novelforge-agent',
     version: MCP_SERVER_VERSION,
   });
 
-  server.tool(
+  function tool(
+    name: string,
+    description: string,
+    paramsSchema: Record<string, z.ZodTypeAny>,
+    handler: (args: any) => Promise<TextToolResult>
+  ) {
+    server.tool(name, description, paramsSchema, async (args: any) => {
+      const runId = randomUUID();
+      const startedAt = Date.now();
+      const startedAtIso = new Date(startedAt).toISOString();
+      const inputProjectPath = logProjectPath(pathFromObject(args));
+      const startEvent = {
+        type: 'tool_call_start',
+        ts: startedAtIso,
+        runId,
+        tool: name,
+        inputSummary: summarizeForLog(args),
+      };
+      await tryAppendAgentEvent(inputProjectPath, startEvent);
+
+      try {
+        const result = await handler(args);
+        const outputProjectPath = logProjectPath(projectPathFromTextResult(result)) ?? inputProjectPath;
+        if (!inputProjectPath) await tryAppendAgentEvent(outputProjectPath, startEvent);
+        await tryAppendAgentEvent(outputProjectPath, {
+          type: 'tool_call_end',
+          runId,
+          tool: name,
+          durationMs: Date.now() - startedAt,
+          outputSummary: summarizeForLog(result),
+        });
+        return result;
+      } catch (error) {
+        await tryAppendAgentEvent(inputProjectPath, {
+          type: 'tool_call_error',
+          level: 'error',
+          runId,
+          tool: name,
+          durationMs: Date.now() - startedAt,
+          error: {
+            name: (error as Error).name,
+            message: (error as Error).message,
+          },
+        });
+        throw error;
+      }
+    });
+  }
+
+  tool(
     'start_novel_project',
     'Create a local novel project and return the first generation instruction.',
     {
@@ -221,7 +317,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     }
   );
 
-  server.tool(
+  tool(
     'list_projects',
     'List all NovelForge projects under the workspace, sorted by most recently updated. Use this to find an existing projectPath instead of asking the user.',
     {
@@ -231,14 +327,14 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       textResult(await listProjects({ workspaceRoot: options.workspaceRoot, outputDir: checkedOutputDir(outputDir) }))
   );
 
-  server.tool(
+  tool(
     'get_project_status',
     'Return a compact, one-screen summary of a project: current step, chapters written, open threads, latest review verdict, completion state.',
     { projectPath: z.string().min(1) },
     async ({ projectPath }) => textResult(await getProjectStatus(checkedProjectPath(projectPath)))
   );
 
-  server.tool(
+  tool(
     'amend_novel_metadata',
     'Update novel.json metadata. If title changes, the project directory is renamed and the returned projectPath must be used afterward.',
     {
@@ -277,14 +373,14 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     }
   );
 
-  server.tool(
+  tool(
     'get_next_step',
     'Return the next required generation step for a novel project. Large prompts/contexts are returned as previews plus fullContextPath.',
     { projectPath: z.string().min(1) },
     async ({ projectPath }) => textResult(await boundInstruction(await getNextStep(checkedProjectPath(projectPath))))
   );
 
-  server.tool(
+  tool(
     'submit_step_result',
     'Submit host-generated content for validation, saving, and workflow advancement. Returns a compact mutation result; call get_next_step afterward when the next full instruction and context are needed.',
     {
@@ -309,7 +405,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       textResult(compactSubmitResult(await submitStepResult({ projectPath: checkedProjectPath(projectPath), step, content })))
   );
 
-  server.tool(
+  tool(
     'get_context',
     'Build purpose-specific context for generation, memory extraction, review, or revision. Large contexts are returned as a preview plus fullContextPath.',
     {
@@ -341,7 +437,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     }
   );
 
-  server.tool(
+  tool(
     'save_chapter',
     'Submit a generated chapter Markdown draft through the workflow state machine. This requires currentStep="chapter" and advances to chapter_review. Returns a compact mutation result; call get_next_step afterward for the review prompt/context.',
     {
@@ -366,7 +462,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     }
   );
 
-  server.tool(
+  tool(
     'generate_chapter',
     'Build the chapter-generation context and instruction for a specific chapter without changing workflow state. Large contexts are returned as a preview plus fullContextPath.',
     {
@@ -384,7 +480,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     }
   );
 
-  server.tool(
+  tool(
     'extract_memory_card',
     'Build the memory-extraction context for a specific chapter without changing workflow state. Large contexts are returned as a preview plus fullContextPath.',
     {
@@ -402,7 +498,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     }
   );
 
-  server.tool(
+  tool(
     'review_chapter',
     'Ask the host to review a specific chapter. Switches into chapter_review side-track and returns its prompt + packed context. Large prompts/contexts are returned as previews plus fullContextPath.',
     {
@@ -413,7 +509,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       textResult(await boundInstruction(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'chapter_review', chapterNumber })))
   );
 
-  server.tool(
+  tool(
     'revise_chapter',
     'Ask the host to rewrite a specific chapter based on prior review feedback and optional extra instructions. Large prompts/contexts are returned as previews plus fullContextPath. Previous version is archived under chapters/.versions/.',
     {
@@ -425,7 +521,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       textResult(await boundInstruction(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'chapter_revision', chapterNumber, feedback })))
   );
 
-  server.tool(
+  tool(
     'retrieve',
     'Lexical BM25-style retrieval over indexed chapter paragraphs, story-bible sections, and memory cards. Returns ranked snippets with chapter attribution.',
     {
@@ -443,7 +539,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     }
   );
 
-  server.tool(
+  tool(
     'cross_chapter_review',
     'Ask the host to review a chapter range for cross-chapter continuity conflicts. Defaults to all generated chapters. Large prompts/contexts are returned as previews plus fullContextPath.',
     {
@@ -459,7 +555,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
 
   // ----- v0.2 tools -----
 
-  server.tool(
+  tool(
     'amend_story_bible',
     'Replace the story bible with a revised version. Old version is auto-archived under story-bible-versions/ and the lexical index is rebuilt for the new content.',
     {
@@ -471,14 +567,14 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       textResult(await amendStoryBible({ projectPath: checkedProjectPath(projectPath), content, reason }))
   );
 
-  server.tool(
+  tool(
     'list_bible_versions',
     'List archived story-bible versions for a project (filenames sorted oldest first).',
     { projectPath: z.string().min(1) },
     async ({ projectPath }) => textResult({ versions: await listStoryBibleVersions(checkedProjectPath(projectPath)) })
   );
 
-  server.tool(
+  tool(
     'list_threads',
     'List foreshadow threads for a project, optionally filtered by status. Threads are aggregated from memory_card.threadActions.',
     {
@@ -492,7 +588,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     }
   );
 
-  server.tool(
+  tool(
     'update_thread',
     'Update a single foreshadow thread (override status, plannedPayoffAt, paidOffAt, droppedAt, description, notes).',
     {
@@ -509,7 +605,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       textResult(await updateThread(checkedProjectPath(projectPath), id, patch))
   );
 
-  server.tool(
+  tool(
     'fork_project',
     'Copy an existing project to a new sibling directory with a new projectId. Use to try alternate plot branches without losing the original.',
     {
@@ -520,7 +616,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       textResult(await forkProject({ sourceProjectPath: checkedProjectPath(sourceProjectPath), label }))
   );
 
-  server.tool(
+  tool(
     'delete_chapter',
     'Delete a chapter, its memory card, its single-chapter review, and all archived versions. Removes the chapter from the lexical index and rewinds the workflow if needed.',
     {
@@ -531,7 +627,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       textResult(await deleteChapter({ projectPath: checkedProjectPath(projectPath), chapterNumber }))
   );
 
-  server.tool(
+  tool(
     'redo_step',
     'Roll the workflow back to a specific step. Files produced by that step (and dependent chapter content for chapter/memory_card steps) are removed; the host must regenerate.',
     {
@@ -549,6 +645,52 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     },
     async ({ projectPath, step, chapterNumber }) =>
       textResult(await redoStep({ projectPath: checkedProjectPath(projectPath), step, chapterNumber }))
+  );
+
+  tool(
+    'get_recent_events',
+    'Return recent compact audit events for a project. Large text payloads are summarized by length and sha256 instead of echoed.',
+    {
+      projectPath: z.string().min(1),
+      limit: z.number().int().positive().max(500).default(50),
+      type: z.string().optional(),
+    },
+    async ({ projectPath, limit, type }) =>
+      textResult({ events: await readAgentEvents(checkedProjectPath(projectPath), { limit, type }) })
+  );
+
+  tool(
+    'list_runs',
+    'List recent MCP tool runs for a project, grouped by runId with status and duration.',
+    {
+      projectPath: z.string().min(1),
+      limit: z.number().int().positive().max(200).default(50),
+    },
+    async ({ projectPath, limit }) =>
+      textResult({ runs: await listAgentRuns(checkedProjectPath(projectPath), limit) })
+  );
+
+  tool(
+    'get_run_log',
+    'Return audit events for one MCP tool runId.',
+    {
+      projectPath: z.string().min(1),
+      runId: z.string().min(1),
+      limit: z.number().int().positive().max(500).default(100),
+    },
+    async ({ projectPath, runId, limit }) =>
+      textResult({ events: await readAgentEvents(checkedProjectPath(projectPath), { runId, limit }) })
+  );
+
+  tool(
+    'get_artifact_summary',
+    'Return a compact checksum/size summary for a project artifact without exposing the full file content.',
+    {
+      projectPath: z.string().min(1),
+      path: z.string().min(1),
+    },
+    async ({ projectPath, path }) =>
+      textResult(await getArtifactSummary(checkedProjectPath(projectPath), path))
   );
 
   // ===== MCP Prompts (slash commands) =====

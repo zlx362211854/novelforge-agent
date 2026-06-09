@@ -202,6 +202,14 @@ Dynamic planning is built into the state machine: after each accepted chapter an
 - **`delete_chapter`** `(projectPath, chapterNumber)` — remove a chapter, its memory, reviews, archived versions, and index entries.
 - **`redo_step`** `(projectPath, step, chapterNumber?)` — roll the workflow back to regenerate an artifact.
 
+### Observability
+- **`get_recent_events`** `(projectPath, limit?, type?)` — return recent audit events from `.agent-logs/events.jsonl`.
+- **`list_runs`** `(projectPath, limit?)` — group recent MCP tool calls by `runId`, status, and duration.
+- **`get_run_log`** `(projectPath, runId, limit?)` — return all audit events for one MCP tool call.
+- **`get_artifact_summary`** `(projectPath, path)` — return file size, modified time, and sha256 for a project artifact without exposing the full content.
+
+NovelForge writes a project-local audit trail for tool calls, tool errors, rejected submissions, and workflow state transitions. Long or sensitive fields such as chapter `content`, prompts, instructions, contexts, and MCP text payloads are logged as `{ length, sha256 }` summaries instead of raw text. Human-facing MCP responses stay compact; full large contexts are saved under `.agent-recovery/mcp-context/` when needed.
+
 ### Retrieval
 - **`retrieve`** `(projectPath, query, topK?, types?, chapterStart?, chapterEnd?)` — BM25-style lexical retrieval over indexed paragraphs (chapters), bible H2 sections, and memory cards. Supports CJK + Latin queries via a built-in CJK bigram tokenizer; no external embedding model.
 
@@ -234,6 +242,8 @@ novels/<title-slug>-<rand6>/
 ├── .index/
 │   ├── lexical.json              # MiniSearch serialization
 │   └── manifest.json             # external doc id list
+├── .agent-logs/
+│   └── events.jsonl              # compact audit trail for tool calls and state changes
 └── .agent-recovery/
     ├── failed-*.txt              # rejected submissions kept for inspection
     ├── mcp-context/*.json        # full payloads for MCP context results that were too large
@@ -290,7 +300,7 @@ src/
 │   └── workflow.ts               # dispatcher: contextForStep + side-track + submit
 ├── mcp/
 │   ├── server.ts                 # stdio entrypoint
-│   └── tools.ts                  # 21 MCP tools + 10 MCP prompts
+│   └── tools.ts                  # 25 MCP tools + 10 MCP prompts
 └── cli/
     └── index.ts                  # equivalent CLI subcommands
 ```

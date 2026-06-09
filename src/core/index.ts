@@ -12,3 +12,4 @@ export * from './bibleStore.js';
 export * from './metadataStore.js';
 export * from './projectOps.js';
 export * from './characterStore.js';
+export * from './agentLog.js';
