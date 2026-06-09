@@ -1,9 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { readFileSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  amendNovelMetadata,
   amendStoryBible,
   assertProjectPath,
   buildContext,
@@ -22,7 +24,7 @@ import {
   submitStepResult,
   updateThread,
 } from '../core/index.js';
-import type { AgentState, SubmitStepResult } from '../core/index.js';
+import type { AgentState, StepInstruction, SubmitStepResult } from '../core/index.js';
 
 function packageVersion(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -42,6 +44,7 @@ function packageVersion(): string {
 }
 
 const MCP_SERVER_VERSION = packageVersion();
+const MCP_CONTEXT_PREVIEW_CHARS = 8_000;
 
 export interface CreateNovelAgentServerOptions {
   workspaceRoot: string;
@@ -53,6 +56,96 @@ function textResult(value: unknown) {
       type: 'text' as const,
       text: typeof value === 'string' ? value : JSON.stringify(value, null, 2),
     }],
+  };
+}
+
+function safeLabel(label: string): string {
+  return label.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'context';
+}
+
+async function saveMcpPayload(projectPath: string, label: string, value: unknown): Promise<string> {
+  const dir = join(projectPath, '.agent-recovery', 'mcp-context');
+  await mkdir(dir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const path = join(dir, `${timestamp}-${safeLabel(label)}.json`);
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  return path;
+}
+
+async function boundContext(projectPath: string, label: string, context: string, extra: Record<string, unknown> = {}) {
+  if (context.length <= MCP_CONTEXT_PREVIEW_CHARS) {
+    return {
+      ...extra,
+      context,
+      contextLength: context.length,
+      contextTruncated: false,
+    };
+  }
+
+  const fullContextPath = await saveMcpPayload(projectPath, label, { ...extra, context });
+  return {
+    ...extra,
+    contextPreview: context.slice(0, MCP_CONTEXT_PREVIEW_CHARS),
+    contextLength: context.length,
+    contextPreviewLength: MCP_CONTEXT_PREVIEW_CHARS,
+    contextTruncated: true,
+    fullContextPath,
+    truncationHint: 'The full context was too large for an MCP tool result. Read fullContextPath when exact full context is needed.',
+  };
+}
+
+async function boundInstruction(instruction: StepInstruction) {
+  const base = {
+    projectId: instruction.projectId,
+    projectPath: instruction.projectPath,
+    currentStep: instruction.currentStep,
+    expectedFormat: instruction.expectedFormat,
+  };
+  const instructionTruncated = instruction.instruction.length > MCP_CONTEXT_PREVIEW_CHARS;
+  const contextTruncated = instruction.context.length > MCP_CONTEXT_PREVIEW_CHARS;
+
+  if (!instructionTruncated && !contextTruncated) {
+    return {
+      ...base,
+      instruction: instruction.instruction,
+      instructionLength: instruction.instruction.length,
+      instructionTruncated: false,
+      context: instruction.context,
+      contextLength: instruction.context.length,
+      contextTruncated: false,
+    };
+  }
+
+  const fullContextPath = await saveMcpPayload(instruction.projectPath, `next-step-${instruction.currentStep}`, {
+    ...base,
+    instruction: instruction.instruction,
+    context: instruction.context,
+  });
+
+  return {
+    ...base,
+    ...(instructionTruncated ? {
+      instructionPreview: instruction.instruction.slice(0, MCP_CONTEXT_PREVIEW_CHARS),
+      instructionLength: instruction.instruction.length,
+      instructionPreviewLength: MCP_CONTEXT_PREVIEW_CHARS,
+      instructionTruncated: true,
+    } : {
+      instruction: instruction.instruction,
+      instructionLength: instruction.instruction.length,
+      instructionTruncated: false,
+    }),
+    ...(contextTruncated ? {
+      contextPreview: instruction.context.slice(0, MCP_CONTEXT_PREVIEW_CHARS),
+      contextLength: instruction.context.length,
+      contextPreviewLength: MCP_CONTEXT_PREVIEW_CHARS,
+      contextTruncated: true,
+    } : {
+      context: instruction.context,
+      contextLength: instruction.context.length,
+      contextTruncated: false,
+    }),
+    fullContextPath,
+    truncationHint: 'The full instruction/context was too large for an MCP tool result. Read fullContextPath when exact full payload is needed.',
   };
 }
 
@@ -124,7 +217,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
         targetChapters,
         plannedTotalChapters,
       });
-      return textResult({ state: result.state, next: await getNextStep(result.state.projectPath) });
+      return textResult({ state: result.state, next: await boundInstruction(await getNextStep(result.state.projectPath)) });
     }
   );
 
@@ -146,10 +239,49 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
   );
 
   server.tool(
+    'amend_novel_metadata',
+    'Update novel.json metadata. If title changes, the project directory is renamed and the returned projectPath must be used afterward.',
+    {
+      projectPath: z.string().min(1),
+      content: z.string().optional(),
+      title: z.string().min(1).optional(),
+      genre: z.string().min(1).optional(),
+      premise: z.string().min(1).optional(),
+      language: z.string().min(1).optional(),
+      style: z.string().min(1).optional(),
+      coreCast: z.array(z.object({
+        name: z.string().min(1),
+        role: z.string().min(1),
+        description: z.string().min(1),
+      })).optional(),
+      reason: z.string().optional(),
+    },
+    async ({ projectPath, content, title, genre, premise, language, style, coreCast, reason }) => {
+      const result = await amendNovelMetadata({
+        projectPath: checkedProjectPath(projectPath),
+        content,
+        title,
+        genre,
+        premise,
+        language,
+        style,
+        coreCast,
+        reason,
+      });
+      return textResult({
+        ...result,
+        hint: result.renamed
+          ? 'The project directory was renamed. Use projectPath from this result for all subsequent NovelForge calls.'
+          : 'Metadata updated. Continue using the returned projectPath.',
+      });
+    }
+  );
+
+  server.tool(
     'get_next_step',
-    'Return the next required generation step for a novel project.',
+    'Return the next required generation step for a novel project. Large prompts/contexts are returned as previews plus fullContextPath.',
     { projectPath: z.string().min(1) },
-    async ({ projectPath }) => textResult(await getNextStep(checkedProjectPath(projectPath)))
+    async ({ projectPath }) => textResult(await boundInstruction(await getNextStep(checkedProjectPath(projectPath))))
   );
 
   server.tool(
@@ -179,7 +311,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
 
   server.tool(
     'get_context',
-    'Build purpose-specific context for generation, memory extraction, review, or revision.',
+    'Build purpose-specific context for generation, memory extraction, review, or revision. Large contexts are returned as a preview plus fullContextPath.',
     {
       projectPath: z.string().min(1),
       purpose: z.enum([
@@ -196,13 +328,17 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       start: z.number().int().positive().optional(),
       end: z.number().int().positive().optional(),
     },
-    async ({ projectPath, purpose, chapterNumber, start, end }) =>
-      textResult(await buildContext({
-        projectPath: checkedProjectPath(projectPath),
+    async ({ projectPath, purpose, chapterNumber, start, end }) => {
+      const checked = checkedProjectPath(projectPath);
+      const range = start && end ? { start, end } : undefined;
+      const context = await buildContext({
+        projectPath: checked,
         purpose,
         chapterNumber,
-        range: start && end ? { start, end } : undefined,
-      }))
+        range,
+      });
+      return textResult(await boundContext(checked, `context-${purpose}`, context, { projectPath: checked, purpose, chapterNumber, range }));
+    }
   );
 
   server.tool(
@@ -232,53 +368,61 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
 
   server.tool(
     'generate_chapter',
-    'Build the chapter-generation context and instruction for a specific chapter without changing workflow state.',
+    'Build the chapter-generation context and instruction for a specific chapter without changing workflow state. Large contexts are returned as a preview plus fullContextPath.',
     {
       projectPath: z.string().min(1),
       chapterNumber: z.number().int().positive(),
     },
-    async ({ projectPath, chapterNumber }) =>
-      textResult({
-        context: await buildContext({ projectPath: checkedProjectPath(projectPath), purpose: 'chapter_generation', chapterNumber }),
+    async ({ projectPath, chapterNumber }) => {
+      const checked = checkedProjectPath(projectPath);
+      const context = await buildContext({ projectPath: checked, purpose: 'chapter_generation', chapterNumber });
+      return textResult(await boundContext(checked, `generate-chapter-${chapterNumber}`, context, {
+        projectPath: checked,
+        chapterNumber,
         hint: 'Persist the result via submit_step_result(step="chapter") when the workflow currentStep is "chapter"; the workflow then requires chapter_review before memory_card.',
-      })
+      }));
+    }
   );
 
   server.tool(
     'extract_memory_card',
-    'Build the memory-extraction context for a specific chapter without changing workflow state.',
+    'Build the memory-extraction context for a specific chapter without changing workflow state. Large contexts are returned as a preview plus fullContextPath.',
     {
       projectPath: z.string().min(1),
       chapterNumber: z.number().int().positive(),
     },
-    async ({ projectPath, chapterNumber }) =>
-      textResult({
-        context: await buildContext({ projectPath: checkedProjectPath(projectPath), purpose: 'memory_extraction', chapterNumber }),
+    async ({ projectPath, chapterNumber }) => {
+      const checked = checkedProjectPath(projectPath);
+      const context = await buildContext({ projectPath: checked, purpose: 'memory_extraction', chapterNumber });
+      return textResult(await boundContext(checked, `memory-extraction-${chapterNumber}`, context, {
+        projectPath: checked,
+        chapterNumber,
         hint: 'Submit the extracted memory card via submit_step_result with step="memory_card" when the workflow currentStep matches.',
-      })
+      }));
+    }
   );
 
   server.tool(
     'review_chapter',
-    'Ask the host to review a specific chapter. Switches the workflow into chapter_review side-track and returns the review prompt + packed context. Resume original step after submit_step_result(step="chapter_review").',
+    'Ask the host to review a specific chapter. Switches into chapter_review side-track and returns its prompt + packed context. Large prompts/contexts are returned as previews plus fullContextPath.',
     {
       projectPath: z.string().min(1),
       chapterNumber: z.number().int().positive(),
     },
     async ({ projectPath, chapterNumber }) =>
-      textResult(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'chapter_review', chapterNumber }))
+      textResult(await boundInstruction(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'chapter_review', chapterNumber })))
   );
 
   server.tool(
     'revise_chapter',
-    'Ask the host to rewrite a specific chapter based on prior review feedback and optional extra instructions. Previous version is archived under chapters/.versions/.',
+    'Ask the host to rewrite a specific chapter based on prior review feedback and optional extra instructions. Large prompts/contexts are returned as previews plus fullContextPath. Previous version is archived under chapters/.versions/.',
     {
       projectPath: z.string().min(1),
       chapterNumber: z.number().int().positive(),
       feedback: z.string().optional(),
     },
     async ({ projectPath, chapterNumber, feedback }) =>
-      textResult(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'chapter_revision', chapterNumber, feedback }))
+      textResult(await boundInstruction(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'chapter_revision', chapterNumber, feedback })))
   );
 
   server.tool(
@@ -301,7 +445,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
 
   server.tool(
     'cross_chapter_review',
-    'Ask the host to review a chapter range for cross-chapter continuity conflicts. Defaults to all generated chapters.',
+    'Ask the host to review a chapter range for cross-chapter continuity conflicts. Defaults to all generated chapters. Large prompts/contexts are returned as previews plus fullContextPath.',
     {
       projectPath: z.string().min(1),
       start: z.number().int().positive().optional(),
@@ -309,7 +453,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     },
     async ({ projectPath, start, end }) => {
       const range = start && end ? { start, end } : undefined;
-      return textResult(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'cross_chapter_review', range }));
+      return textResult(await boundInstruction(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'cross_chapter_review', range })));
     }
   );
 

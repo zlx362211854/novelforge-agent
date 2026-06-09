@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createNovelAgentServer } from '../src/mcp/tools.js';
@@ -86,6 +86,49 @@ test('MCP start_novel_project defaults to batch planning with a larger whole-boo
   }
 });
 
+test('MCP amend_novel_metadata renames project directory when title changes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nf-mcp-amend-meta-'));
+  try {
+    const { state } = await createProject({
+      workspaceRoot: root,
+      prompt: '写一本修仙小说',
+      outputDir: 'novels',
+    });
+    const metadata = await submitStepResult({
+      projectPath: state.projectPath,
+      step: 'novel_metadata',
+      content: JSON.stringify({
+        title: '旧书名',
+        genre: '修仙',
+        premise: '少年从外门起步。',
+        language: 'zh-CN',
+        style: '轻松连载',
+        coreCast: [{ name: '林北', role: 'protagonist', description: '外门弟子' }],
+      }),
+    });
+
+    const oldProjectPath = metadata.state.projectPath;
+    const server = createNovelAgentServer({ workspaceRoot: root });
+    const result = parseTextResult(await toolHandler(server, 'amend_novel_metadata')({
+      projectPath: oldProjectPath,
+      title: '灵石会下崽',
+    }));
+
+    assert.equal(result.renamed, true);
+    assert.notEqual(result.projectPath, oldProjectPath);
+    assert.match(result.projectPath, /灵石会下崽-[a-f0-9]{6}/);
+    await assert.rejects(() => stat(oldProjectPath));
+
+    const nextState = await loadState(result.projectPath);
+    assert.equal(nextState.projectPath, result.projectPath);
+    assert.equal(nextState.files.novel, 'novel.json');
+    assert.match(await readFile(join(result.projectPath, 'novel.json'), 'utf8'), /灵石会下崽/);
+    assert.match(await readFile(join(result.projectPath, 'novel.json'), 'utf8'), /少年从外门起步。/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('MCP save_chapter submits through workflow and advances to chapter_review', async () => {
   const root = await mkdtemp(join(tmpdir(), 'nf-mcp-save-'));
   try {
@@ -121,7 +164,7 @@ test('MCP save_chapter submits through workflow and advances to chapter_review',
     });
 
     const server = createNovelAgentServer({ workspaceRoot: root });
-    const longContent = `${'陈序沿着站台往前走，雨声盖住旧钟。'.repeat(300)}\n\nUNIQUE_LONG_CHAPTER_MARKER`;
+    const longContent = `${'陈序沿着站台往前走，雨声盖住旧钟。'.repeat(2000)}\n\nUNIQUE_LONG_CHAPTER_MARKER`;
     const saveRaw = (await toolHandler(server, 'save_chapter')({
       projectPath,
       chapterNumber: 1,
@@ -143,6 +186,23 @@ test('MCP save_chapter submits through workflow and advances to chapter_review',
     assert.equal(nextState.currentStep, 'chapter_review');
     assert.equal(nextState.files['chapter-1'], 'chapters/001.md');
     assert.match(await readFile(join(projectPath, 'chapters/001.md'), 'utf8'), /UNIQUE_LONG_CHAPTER_MARKER/);
+
+    const nextRaw = (await toolHandler(server, 'get_next_step')({ projectPath }) as { content: Array<{ text: string }> }).content[0].text;
+    const next = JSON.parse(nextRaw);
+    assert.equal(next.currentStep, 'chapter_review');
+    assert.equal(next.contextTruncated, true);
+    assert.equal('context' in next, false);
+    assert.equal(next.instructionTruncated, true);
+    assert.equal('instruction' in next, false);
+    assert.equal(typeof next.instructionPreview, 'string');
+    assert.equal(typeof next.contextPreview, 'string');
+    assert.equal(next.instructionPreview.length <= 8_000, true);
+    assert.equal(next.contextPreview.length <= 8_000, true);
+    assert.equal(nextRaw.length < 20000, true);
+
+    const fullContext = JSON.parse(await readFile(next.fullContextPath, 'utf8'));
+    assert.match(fullContext.instruction, /UNIQUE_LONG_CHAPTER_MARKER/);
+    assert.match(fullContext.context, /UNIQUE_LONG_CHAPTER_MARKER/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

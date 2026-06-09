@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
 import {
+  amendNovelMetadata,
   amendStoryBible,
   buildContext,
   createProject,
@@ -180,6 +181,23 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd()):
     return;
   }
 
+  if (command === 'amend-metadata') {
+    if (!projectPath) throw new Error('Missing projectPath');
+    const file = valueAfter(argv, '--file');
+    const content = file ? await readFile(file, 'utf8') : undefined;
+    console.log(JSON.stringify(await amendNovelMetadata({
+      projectPath,
+      content,
+      title: valueAfter(argv, '--title'),
+      genre: valueAfter(argv, '--genre'),
+      premise: valueAfter(argv, '--premise'),
+      language: valueAfter(argv, '--language'),
+      style: valueAfter(argv, '--style'),
+      reason: valueAfter(argv, '--reason'),
+    }), null, 2));
+    return;
+  }
+
   if (command === 'threads') {
     if (!projectPath) throw new Error('Missing projectPath');
     const status = valueAfter(argv, '--status') as 'planted' | 'building' | 'paid' | 'dropped' | undefined;
@@ -237,7 +255,7 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd()):
     return;
   }
 
-  throw new Error('Usage: novelforge-agent install|start|list|status|next|submit|context|review|revise|cross-review|retrieve|amend-bible|threads|update-thread|fork|delete-chapter|redo');
+  throw new Error('Usage: novelforge-agent install|start|list|status|next|submit|context|review|revise|cross-review|retrieve|amend-metadata|amend-bible|threads|update-thread|fork|delete-chapter|redo');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

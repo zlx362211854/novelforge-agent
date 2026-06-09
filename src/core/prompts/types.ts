@@ -12,6 +12,7 @@ export type PromptPurpose =
   | 'chapter_review'
   | 'chapter_revision'
   | 'cross_chapter_review'
+  | 'novel_metadata_amend'
   | 'story_bible_amend';
 
 export interface PromptBuildInput {

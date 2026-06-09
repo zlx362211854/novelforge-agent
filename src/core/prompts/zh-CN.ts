@@ -582,6 +582,8 @@ function buildPromptForStep(input: PromptBuildInput): BuiltPrompt {
       return buildChapterRevisionPrompt(input);
     case 'cross_chapter_review':
       return buildCrossChapterReviewPrompt(input);
+    case 'novel_metadata_amend':
+      return buildMetadataPrompt(input);
     case 'story_bible_amend':
       return {
         purpose: 'story_bible',

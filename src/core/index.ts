@@ -9,5 +9,6 @@ export * from './retrieval/index.js';
 export * from './projectDiscovery.js';
 export * from './threadStore.js';
 export * from './bibleStore.js';
+export * from './metadataStore.js';
 export * from './projectOps.js';
 export * from './characterStore.js';

@@ -1,6 +1,6 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { AgentState } from './types.js';
 import { makeProjectSlug } from './fileNames.js';
 
@@ -126,4 +126,39 @@ export async function saveRecoveryFile(projectPath: string, step: string, conten
   const safeStep = step.replace(/[^a-z0-9_-]+/gi, '-').toLowerCase();
   const fileName = `.agent-recovery/failed-${safeStep}-${Date.now()}.txt`;
   return saveMarkdownFile(projectPath, fileName, content);
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function uniqueProjectPath(parentDir: string, baseName: string, currentPath: string): Promise<string> {
+  let candidate = join(parentDir, baseName);
+  if (candidate === currentPath || !(await pathExists(candidate))) return candidate;
+
+  for (let index = 2; index < 100; index += 1) {
+    candidate = join(parentDir, `${baseName}-${index}`);
+    if (candidate === currentPath || !(await pathExists(candidate))) return candidate;
+  }
+
+  throw new Error(`Unable to find available project directory for ${baseName}`);
+}
+
+export async function renameProjectForTitle(projectPath: string, title: string): Promise<string> {
+  const parentDir = dirname(projectPath);
+  const currentName = basename(projectPath);
+  const suffix = currentName.match(/-([a-f0-9]{6})$/i)?.[1];
+  const titleSlug = makeProjectSlug(title);
+  const nextName = suffix ? `${titleSlug}-${suffix}` : titleSlug;
+  if (nextName === currentName) return projectPath;
+
+  const nextPath = await uniqueProjectPath(parentDir, nextName, projectPath);
+  if (nextPath === projectPath) return projectPath;
+  await rename(projectPath, nextPath);
+  return nextPath;
 }

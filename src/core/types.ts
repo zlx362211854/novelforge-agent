@@ -10,6 +10,7 @@ export type WorkflowStep =
   | 'chapter_review'
   | 'chapter_revision'
   | 'cross_chapter_review'
+  | 'novel_metadata_amend'
   | 'story_bible_amend'
   | 'complete';
 

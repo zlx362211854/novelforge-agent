@@ -1,10 +1,12 @@
 # NovelForge Agent
 
-A local-first long-form novel workflow engine for any MCP host (Claude Code, Codex CLI, Cursor, …) or any CLI shell.
+[中文文档](README.zh-CN.md)
 
-**The host's LLM writes the prose. This package does everything else** — it manages a gated long-form state machine, returns the exact instruction and packed context the host should follow next, validates returned content against zod schemas, persists Markdown + JSON to a project directory, archives chapter versions on revision, and provides BM25 lexical retrieval over every word the project has ever produced.
+A workflow-driven long-form fiction agent runtime for any MCP host (Claude Code, Codex CLI, Cursor, …) or any CLI shell.
 
-No external API. No LLM dependency. No vendor lock-in.
+**The host's LLM generates the creative artifacts. NovelForge owns the runtime discipline** — it manages a gated long-form workflow, returns the exact instruction and packed context the host should follow next, validates returned content against zod schemas, persists Markdown + JSON to a project directory, archives chapter versions on revision, and provides BM25 lexical retrieval over chapters, story-bible sections, and memory cards.
+
+NovelForge does not call model APIs itself. The MCP host supplies the LLM, so there is no model vendor lock-in inside this package.
 
 ---
 
@@ -22,11 +24,11 @@ That single command will:
 2. Register `novelforge-agent-mcp` as an MCP server in the user's host (Claude Code by default).
 3. Print a verification step.
 
-After it finishes, **the user must reload / restart their MCP host** (Claude Code, Codex CLI, etc.) so the new MCP server is picked up. Then ask the host:
+After it finishes, **the user must reload / restart their MCP host** (Claude Code, Codex CLI, etc.) so the new MCP server is picked up. Then ask the host to call the installed tool:
 
-> "list_projects 现在能用吗?"
+> "Please call the novelforge `list_projects` tool."
 
-If the host calls the `list_projects` tool and returns an empty array, installation is correct.
+If it returns `[]` for an empty workspace, or a list of existing projects, installation is correct.
 
 ### Host selection
 
@@ -60,7 +62,7 @@ The installer is **idempotent and safe**: it never overwrites an existing entry 
 |  | `style_guide` | Output JSON: narrative voice, pacing, diction, dialogue rules, prohibited patterns, prose rhythm, sample prose | `style-guide.json` |
 |  | `architecture` | Output JSON: full / volume / pacing / chapter outlines | `architecture/{full.md, volumes.json, volume-pacing.json, chapters.json}` |
 | Loop  | `chapter` | Write chapter N Markdown | `chapters/NNN.md` |
-|  | `chapter_review` | Enforce the chapter acceptance gate: required beats, plot/character/thread progress, story-bible consistency, ending hook, repetition check | `reviews/chapter/chapter-NNN.json` |
+|  | `chapter_review` | Enforce the chapter acceptance gate: required beats, plot/character/thread progress, story-bible consistency, prose rhythm, ending hook, repetition check | `reviews/chapter/chapter-NNN.json` |
 |  | `chapter_revision` | If review finds issues, rewrite the chapter; previous version is archived | `chapters/.versions/NNN.<ts>.md` |
 |  | `memory_card` | After a clean review, extract chapter N memory JSON and update character/thread state | `memory/chapter-NNN.json`, `characters.json`, `threads.json` |
 | Wrap  | `continuity_review` | Audit chapters 1..N for conflicts | `reviews/continuity-S-E.json` |
@@ -68,7 +70,7 @@ The installer is **idempotent and safe**: it never overwrites an existing entry 
 |  | `chapter_revision` | Rewrite a chapter; previous version auto-archived | `chapters/.versions/NNN.<ts>.md` |
 |  | `cross_chapter_review` | Cross-chapter continuity audit | `reviews/cross/cross-S-E.json` |
 
-Each chapter / bible / memory write also feeds a per-project BM25 index (`.index/`) so the agent can hand the host semantically relevant snippets when later chapters are generated, or answer ad-hoc `retrieve` queries from the host. Chapter generation context also includes the style guide (`style-guide.json`), independent character state table (`characters.json`), and current volume pacing board (`architecture/volume-pacing.json`) when available. The style guide includes `proseRhythm`, which checks rhythm anti-patterns such as excessive short-sentence density, consecutive one-sentence paragraphs, fake rhythm through line breaks, overly direct interior explanation, and repeated sentence patterns.
+Each chapter / bible / memory write also feeds a per-project BM25 index (`.index/`) so the runtime can hand the host semantically relevant snippets when later chapters are generated, or answer ad-hoc `retrieve` queries from the host. Chapter generation context also includes the style guide (`style-guide.json`), independent character state table (`characters.json`), and current volume pacing board (`architecture/volume-pacing.json`) when available. The style guide includes `proseRhythm`, which checks rhythm anti-patterns such as excessive short-sentence density, consecutive one-sentence paragraphs, fake rhythm through line breaks, overly direct interior explanation, and repeated sentence patterns.
 
 ## Install
 
@@ -150,7 +152,7 @@ Reload Claude Code and type:
 
 > 我想写一本赛博修仙小说
 
-Claude will discover the `start_novel_project` tool, call it, get back the first prompt for `novel_metadata`, generate the JSON, call `submit_step_result`, then call `get_next_step` for the next full prompt/context and continue until `complete`. MCP write tools return compact mutation results so long chapters are not echoed back through tool output.
+Claude will discover the `start_novel_project` tool, call it, get back the first prompt for `novel_metadata`, generate the JSON, call `submit_step_result`, then call `get_next_step` for the next prompt/context and continue until `complete`. MCP write tools return compact mutation results so long chapters are not echoed back through tool output. When a read-context tool would exceed host limits, NovelForge returns bounded preview fields such as `instructionPreview` / `contextPreview` plus `fullContextPath`; read that local JSON file for the exact full payload.
 
 ### Codex CLI
 
@@ -174,23 +176,24 @@ NOVELFORGE_WORKSPACE = "/absolute/path/where/projects/should/live"
 - **`start_novel_project`** `(prompt, language?, outputDir?, targetChapters?, plannedTotalChapters?)` — create a new project under `<workspaceRoot>/<outputDir>/<prompt-slug>-<rand6>/` and return the first step's instruction. After `novel_metadata` is accepted, the directory is renamed to `<title-slug>-<same-rand6>/`; callers must continue with the returned `state.projectPath`. `targetChapters` is the per-batch planning size; MCP defaults to 5. `plannedTotalChapters` is the whole-book target; MCP defaults to 12.
 - **`list_projects`** `(outputDir?)` — list all projects in the workspace, newest first.
 - **`get_project_status`** `(projectPath)` — compact summary: current step, chapters written, open threads, latest review verdict.
-- **`get_next_step`** `(projectPath)` — return the prompt + packed context for whatever the workflow expects next.
+- **`get_next_step`** `(projectPath)` — return the prompt + packed context for whatever the workflow expects next. Large prompt/context returns are bounded as `instructionPreview` / `contextPreview` + `fullContextPath` instead of giant inline fields.
 
 ### Workflow advancement
 - **`submit_step_result`** `(projectPath, step, content)` — validate `content` against the step's zod schema, persist it, advance the state machine, and return a compact mutation result. It does not include the next full prompt/context; call `get_next_step` afterward when needed. On failure the bad submission is written to `.agent-recovery/failed-*.txt` and the state does not advance.
-- **`get_context`** `(projectPath, purpose, chapterNumber?, start?, end?)` — build purpose-specific context without changing state. Useful when the host wants to read what the agent *would* have packed.
+- **`get_context`** `(projectPath, purpose, chapterNumber?, start?, end?)` — build purpose-specific context without changing state. Useful when the host wants to read what the agent *would* have packed. Large contexts use the same `contextPreview` + `fullContextPath` fallback.
 
 Dynamic planning is built into the state machine: after each accepted chapter and memory card, the agent checks `plannedTotalChapters` and the highest chapter covered by `architecture/chapters.json`. If the next chapter is still inside the whole-book target but not yet planned, the next step becomes `architecture_extension`; after the host submits that JSON, generation resumes at `chapter`.
 
 ### Semantic actions (verb-style; safe to call any time)
-- **`generate_chapter`** `(projectPath, chapterNumber)` — return generation context for a specific chapter.
-- **`extract_memory_card`** `(projectPath, chapterNumber)` — return memory-extraction context for a specific chapter.
-- **`review_chapter`** `(projectPath, chapterNumber)` — switch into a single-chapter editorial review side-track and return its prompt. After `submit_step_result(step="chapter_review")`, the workflow resumes its prior step automatically.
-- **`revise_chapter`** `(projectPath, chapterNumber, feedback?)` — switch into a chapter-revision side-track. Submitting `chapter_revision` content auto-archives the previous version under `chapters/.versions/`.
-- **`cross_chapter_review`** `(projectPath, start?, end?)` — switch into a cross-chapter audit side-track over the given range (defaults to all generated chapters).
+- **`generate_chapter`** `(projectPath, chapterNumber)` — return generation context for a specific chapter. Large contexts may return `contextPreview` + `fullContextPath`.
+- **`extract_memory_card`** `(projectPath, chapterNumber)` — return memory-extraction context for a specific chapter. Large contexts may return `contextPreview` + `fullContextPath`.
+- **`review_chapter`** `(projectPath, chapterNumber)` — switch into a single-chapter editorial review side-track and return its prompt. Large prompts/contexts may return `instructionPreview` / `contextPreview` + `fullContextPath`. After `submit_step_result(step="chapter_review")`, the workflow resumes its prior step automatically.
+- **`revise_chapter`** `(projectPath, chapterNumber, feedback?)` — switch into a chapter-revision side-track. Large prompts/contexts may return `instructionPreview` / `contextPreview` + `fullContextPath`. Submitting `chapter_revision` content auto-archives the previous version under `chapters/.versions/`.
+- **`cross_chapter_review`** `(projectPath, start?, end?)` — switch into a cross-chapter audit side-track over the given range (defaults to all generated chapters). Large prompts/contexts may return `instructionPreview` / `contextPreview` + `fullContextPath`.
 - **`save_chapter`** `(projectPath, chapterNumber, title, content)` — submit the current chapter through the state machine; it requires `currentStep="chapter"` and then advances to mandatory `chapter_review`. The returned MCP payload is compact and does not echo the chapter or review context.
 
 ### Project operations
+- **`amend_novel_metadata`** `(projectPath, content?, title?, genre?, premise?, language?, style?, coreCast?, reason?)` — update `novel.json`; when `title` changes, the project directory is renamed and the returned `projectPath` must be used afterward.
 - **`amend_story_bible`** `(projectPath, content, reason?)` — replace `story-bible.md`, archive the previous version, and rebuild the bible index.
 - **`list_bible_versions`** `(projectPath)` — list archived story-bible versions.
 - **`list_threads`** `(projectPath, status?)` — list foreshadow threads collected from memory cards.
@@ -233,6 +236,7 @@ novels/<title-slug>-<rand6>/
 │   └── manifest.json             # external doc id list
 └── .agent-recovery/
     ├── failed-*.txt              # rejected submissions kept for inspection
+    ├── mcp-context/*.json        # full payloads for MCP context results that were too large
     └── side-track.json           # resume hint when in a review/revision side-track
 ```
 
@@ -250,12 +254,13 @@ novel_metadata → story_bible → style_guide → architecture → chapter
                                                  ↓                    ↓
                                             memory_card       chapter_revision
                                                  ↓                    ↓
-                     ┌─────────────┴─────────────┐      │
-             (more chapters)                (all done)   │
-                     ↓                            ↓       │
-                  chapter                continuity_review│
-                                                  ↓       │
-                                              complete    │
+                  ┌──────────────┬──────────────┐        │
+        planned chapter      needs planning   all done    │
+              exists              ↓              ↓        │
+                ↓        architecture_extension  ↓        │
+             chapter              ↓       continuity_review│
+                                chapter            ↓      │
+                                                complete   │
                                                        (back to
                                                     chapter_review)
 ```
@@ -264,7 +269,9 @@ novel_metadata → story_bible → style_guide → architecture → chapter
 
 Side-track steps (`chapter_review`, `chapter_revision`, `cross_chapter_review`) can still be triggered at any moment via the semantic-action tools. When a manual side-track completes via `submit_step_result`, the workflow returns to whatever `currentStep` it was on before the side-track started.
 
-The full transition map lives in the `next:` declaration of each handler under [src/core/steps/](src/core/steps/). To change the workflow, edit those files — that is the entire state machine, there is no graph engine.
+The normal loop is dynamic: after `memory_card`, NovelForge checks whether the next chapter is already planned. If not, and the project has not reached `plannedTotalChapters`, the next step becomes `architecture_extension` before writing continues.
+
+The transition map lives in the `next:` declaration of each handler under [src/core/steps/](src/core/steps/) plus the dispatcher in [src/core/workflow.ts](src/core/workflow.ts). To change the workflow, edit those files — there is no LangGraph or external graph engine.
 
 ## Architecture
 
@@ -283,7 +290,7 @@ src/
 │   └── workflow.ts               # dispatcher: contextForStep + side-track + submit
 ├── mcp/
 │   ├── server.ts                 # stdio entrypoint
-│   └── tools.ts                  # 13 MCP tool registrations
+│   └── tools.ts                  # 21 MCP tools + 10 MCP prompts
 └── cli/
     └── index.ts                  # equivalent CLI subcommands
 ```
@@ -297,6 +304,14 @@ $ grep -RIl "anthropic\|openai\|@google" src package.json
 
 Only `@modelcontextprotocol/sdk`, `zod`, `minisearch`.
 
+## Not just a skill
+
+A skill can describe a writing process. NovelForge enforces one.
+
+It persists workflow state, validates artifacts with zod schemas, writes recovery files for rejected submissions, indexes generated material for retrieval, maintains character/thread state, archives revisions, and refuses to advance past gated steps such as `chapter_review` until the submitted artifact passes.
+
+Use a skill or prompt pack to teach a host assistant how to call NovelForge well; use this runtime when you need durable state, validation, recovery, and repeatable long-form production.
+
 ## Adding a new workflow step
 
 1. Add the step name to `WorkflowStep` in [src/core/types.ts](src/core/types.ts).
@@ -309,4 +324,4 @@ Only `@modelcontextprotocol/sdk`, `zod`, `minisearch`.
 
 ## Design principle
 
-The host's LLM is the only thing in this system that thinks. The agent is a pure I/O machine that knows the *order* of work, the *shape* of every artifact, and the *vocabulary* of the domain — and refuses to let the host save anything that violates those rules. Long-form fiction needs that discipline more than it needs another LLM wrapper.
+The host's LLM is the only thing in this system that thinks. NovelForge is a workflow runtime that knows the *order* of work, the *shape* of every artifact, and the *vocabulary* of the domain — and refuses to let the host save anything that violates those rules. Long-form fiction needs that discipline more than it needs another LLM wrapper.
