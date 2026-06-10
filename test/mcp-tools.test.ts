@@ -30,6 +30,10 @@ function toolHandler(server: unknown, name: string): (args: Record<string, unkno
 
 function parseTextResult(value: unknown): any {
   const text = (value as { content: Array<{ text: string }> }).content[0].text;
+  // Markdown-with-fenced-JSON format (verbose mode): extract the ```json ... ``` block.
+  const fenced = text.match(/```json\n([\s\S]*?)\n```/);
+  if (fenced) return JSON.parse(fenced[1]);
+  // Legacy pure-JSON format.
   return JSON.parse(text);
 }
 
@@ -77,6 +81,7 @@ test('MCP start_novel_project defaults to batch planning with a larger whole-boo
     const server = createNovelAgentServer({ workspaceRoot: root });
     const result = parseTextResult(await toolHandler(server, 'start_novel_project')({
       prompt: '写一本赛博悬疑小说',
+      verbose: true,
     }));
 
     assert.equal(result.state.targetChapters, 5);
@@ -189,8 +194,8 @@ test('MCP save_chapter submits through workflow and advances to chapter_review',
     assert.equal(nextState.files['chapter-1'], 'chapters/001.md');
     assert.match(await readFile(join(projectPath, 'chapters/001.md'), 'utf8'), /UNIQUE_LONG_CHAPTER_MARKER/);
 
-    const nextRaw = (await toolHandler(server, 'get_next_step')({ projectPath }) as { content: Array<{ text: string }> }).content[0].text;
-    const next = JSON.parse(nextRaw);
+    const nextRaw = (await toolHandler(server, 'get_next_step')({ projectPath, verbose: true }) as { content: Array<{ text: string }> }).content[0].text;
+    const next = parseTextResult({ content: [{ text: nextRaw }] });
     assert.equal(next.currentStep, 'chapter_review');
     assert.equal(next.contextTruncated, true);
     assert.equal('context' in next, false);
@@ -200,7 +205,8 @@ test('MCP save_chapter submits through workflow and advances to chapter_review',
     assert.equal(typeof next.contextPreview, 'string');
     assert.equal(next.instructionPreview.length <= 8_000, true);
     assert.equal(next.contextPreview.length <= 8_000, true);
-    assert.equal(nextRaw.length < 20000, true);
+    // verbose=true appends markdown summary + raw JSON; allow some headroom.
+    assert.equal(nextRaw.length < 40_000, true);
 
     const fullContext = JSON.parse(await readFile(next.fullContextPath, 'utf8'));
     assert.match(fullContext.instruction, /UNIQUE_LONG_CHAPTER_MARKER/);
@@ -243,9 +249,10 @@ test('MCP submit_step_result returns compact mutation output without next contex
       prompt: '写一本现实小说',
       targetChapters: 1,
       plannedTotalChapters: 1,
+      verbose: true,
     }));
 
-    const raw = (await toolHandler(server, 'submit_step_result')({
+    const result = parseTextResult(await toolHandler(server, 'submit_step_result')({
       projectPath: start.state.projectPath,
       step: 'novel_metadata',
       content: JSON.stringify({
@@ -256,8 +263,8 @@ test('MCP submit_step_result returns compact mutation output without next contex
         style: '细腻',
         coreCast: [{ name: '陈序', role: 'protagonist', description: '返乡者' }],
       }),
-    }) as { content: Array<{ text: string }> }).content[0].text;
-    const result = JSON.parse(raw);
+      verbose: true,
+    }));
 
     assert.equal(result.validation.ok, true);
     assert.equal(result.state.currentStep, 'story_bible');
