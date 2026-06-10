@@ -43,7 +43,7 @@ function claudeJsonSnippet(name: string, workspace: string): string {
       mcpServers: {
         [name]: {
           command: 'npx',
-          args: ['-y', MCP_BIN],
+          args: ['-y', '-p', `${PACKAGE_NAME}@latest`, MCP_BIN],
           env: { NOVELFORGE_WORKSPACE: workspace },
         },
       },
@@ -57,7 +57,7 @@ function codexTomlSnippet(name: string, workspace: string): string {
   return [
     `[mcp_servers.${name}]`,
     `command = "npx"`,
-    `args = ["-y", "${MCP_BIN}"]`,
+    `args = ["-y", "-p", "${PACKAGE_NAME}@latest", "${MCP_BIN}"]`,
     ``,
     `[mcp_servers.${name}.env]`,
     `NOVELFORGE_WORKSPACE = "${workspace}"`,
@@ -71,7 +71,7 @@ function cursorSnippet(name: string, workspace: string): string {
       mcpServers: {
         [name]: {
           command: 'npx',
-          args: ['-y', MCP_BIN],
+          args: ['-y', '-p', `${PACKAGE_NAME}@latest`, MCP_BIN],
           env: { NOVELFORGE_WORKSPACE: workspace },
         },
       },
@@ -98,6 +98,8 @@ async function tryClaudeCli(name: string, workspace: string): Promise<{ ok: bool
     '--',
     'npx',
     '-y',
+    '-p',
+    `${PACKAGE_NAME}@latest`,
     MCP_BIN,
   ];
   try {
@@ -147,7 +149,7 @@ async function applyClaudeCode(name: string, workspace: string, printOnly: boole
     applied: false,
     method: 'print-only',
     message:
-      `\`claude\` CLI not available (${cli.error ?? 'unknown error'}). Paste the snippet below into ~/.claude.json under "mcpServers", or run \`claude mcp add -s user -e NOVELFORGE_WORKSPACE=${workspace} ${name} -- npx -y ${MCP_BIN}\` after installing Claude Code.`,
+      `\`claude\` CLI not available (${cli.error ?? 'unknown error'}). Paste the snippet below into ~/.claude.json under "mcpServers", or run \`claude mcp add -s user -e NOVELFORGE_WORKSPACE=${workspace} ${name} -- npx -y -p ${PACKAGE_NAME}@latest ${MCP_BIN}\` after installing Claude Code.`,
     manualSnippet: snippet,
     verificationHint,
   };

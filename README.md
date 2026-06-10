@@ -45,7 +45,7 @@ npx -y novelforge-agent install --print-only                  # do not modify an
 
 | Host | Action |
 |------|--------|
-| `claude-code` | Runs `claude mcp add -s user -e NOVELFORGE_WORKSPACE=… novelforge -- npx -y novelforge-agent-mcp`. If `claude` CLI is missing, prints a JSON snippet for `~/.claude.json`. |
+| `claude-code` | Runs `claude mcp add -s user -e NOVELFORGE_WORKSPACE=… novelforge -- npx -y -p novelforge-agent@latest novelforge-agent-mcp`. If `claude` CLI is missing, prints a JSON snippet for `~/.claude.json`. |
 | `codex` | Appends an `[mcp_servers.novelforge]` section to `~/.codex/config.toml`. |
 | `cursor` | Prints the JSON snippet to paste into Cursor's MCP settings. |
 
