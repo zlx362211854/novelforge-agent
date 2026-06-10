@@ -284,10 +284,9 @@ ${strictJsonOutputRules()}`,
 function buildChapterPrompt(input: PromptBuildInput): BuiltPrompt {
   const ch = input.state.currentChapter;
   const isFirstChapter = ch <= 1;
-  return {
-    purpose: 'chapter',
-    expectedFormat: 'Markdown',
-    prompt: `You are a professional long-form fiction writer. Write chapter ${ch} directly.
+
+  // ---- Segment 1: stable rules (cache-friendly across chapters) ----
+  const rulesSegment = `You are a professional long-form fiction writer. Write the requested chapter directly.
 
 ## Priority Order
 1. Strictly follow the current chapter architecture, user additions, story bible hard constraints, style guide, and previous-chapter continuity.
@@ -303,12 +302,6 @@ function buildChapterPrompt(input: PromptBuildInput): BuiltPrompt {
 ## Length Target
 - Default target: ~2500 words (±20%). If the chapter architecture specifies targetWords, follow it.
 - Do not pad to hit the target; do not under-write to be brief at the cost of conflict.
-
-## Structure
-${isFirstChapter
-  ? '- This is chapter 1. No recap needed. Open with character and situation directly.'
-  : '- Start with a 2-3 sentence recap or bridge so a reader who skipped the last chapter can re-enter (unless the chapter architecture has requireRecap=false). Make it natural, not meta-narration like "previously...".'}
-- The chapter must end on a clear hook: cliffhanger, mystery, emotional resonance, reveal, or volume close — per the chapter architecture endHookFocus. Default: cliffhanger.
 
 ## Style
 - Enforce the Style Guide from context. Treat sampleParagraph as prose texture only; do not copy its content.
@@ -349,13 +342,47 @@ ${isFirstChapter
 - **Em-dash dialogue fragmenting**: forbid \`"—X—Y—"\` dialogue cut into fragments by em-dashes. Convey ancient / whispered / broken speech via voice texture description, pause-via-setting, or listener reaction.
 - **Staccato single-sentence chain**: never have **3+ consecutive paragraphs** of just one sentence. Even an action beat sequence should merge related beats into a paragraph. "It lowered its head. It glanced at the token at its waist. It looked up again. Purple light flickered twice." — this is the anti-pattern; merge into a full paragraph.
 
-${input.context ? `## Generation Context\n${input.context}\n` : ''}## Output Requirements
+## Output Requirements
 - Output Markdown.
 - First line must be the chapter title as H1, for example: # Chapter Title
 - After the H1, begin the prose directly.
 
 ## Self-check (before output)
-Scan the 15 Forbidden AI Tics above. **Specifically verify parentheses and quoted dialogue also obey the rules**. If any tic is over budget, **rewrite first, then output**. Do not admit in the output that you rewrote.`,
+Scan the 15 Forbidden AI Tics above. **Specifically verify parentheses and quoted dialogue also obey the rules**. If any tic is over budget, **rewrite first, then output**. Do not admit in the output that you rewrote.`;
+
+  // ---- Segment 2: per-chapter meta (volatile) ----
+  const chapterMetaSegment = `## Current Chapter
+- Chapter number: ${ch}
+- First chapter? ${isFirstChapter ? 'yes' : 'no'}
+
+## Structure
+${isFirstChapter
+  ? '- This is chapter 1. No recap needed. Open with character and situation directly.'
+  : '- Start with a 2-3 sentence recap or bridge so a reader who skipped the last chapter can re-enter (unless the chapter architecture has requireRecap=false). Make it natural, not meta-narration like "previously...".'}
+- The chapter must end on a clear hook: cliffhanger, mystery, emotional resonance, reveal, or volume close — per the chapter architecture endHookFocus. Default: cliffhanger.`;
+
+  const segments = [
+    {
+      id: 'rules',
+      text: rulesSegment,
+      cacheable: true,
+      description: 'Stable workflow rules + 15-entry AI-tic catalog. Cache-friendly across every chapter call.',
+    },
+    {
+      id: 'chapter_meta',
+      text: chapterMetaSegment,
+      cacheable: false,
+      description: 'Per-chapter metadata (chapter number, first-chapter branching).',
+    },
+  ];
+
+  const flatPrompt = `${rulesSegment}\n\n${chapterMetaSegment}${input.context ? `\n\n## Generation Context\n${input.context}` : ''}`;
+
+  return {
+    purpose: 'chapter',
+    expectedFormat: 'Markdown',
+    prompt: flatPrompt,
+    segments,
   };
 }
 
@@ -470,13 +497,12 @@ ${strictJsonOutputRules()}`,
 }
 
 function buildChapterReviewPrompt(input: PromptBuildInput): BuiltPrompt {
-const chapter = input.state.pendingAction?.chapterNumber ?? input.state.currentChapter;
-return {
-      purpose: 'chapter_review',
-      expectedFormat: 'JSON matching ChapterReviewSchema',
-      prompt: `You are a strict editor reviewing a single chapter of a serial novel for in-chapter problems and conflicts with established context.
+  const chapter = input.state.pendingAction?.chapterNumber ?? input.state.currentChapter;
 
-${input.context ? `## Review Context\n${input.context}\n` : ''}## Review Focus
+  // ---- Segment 1: stable review rules + audit catalog ----
+  const rulesSegment = `You are a strict editor reviewing a single chapter of a serial novel for in-chapter problems and conflicts with established context.
+
+## Review Focus
 - This is a mandatory chapter acceptance gate. If any acceptance item fails, status must be "issues_found" and the workflow must revise before continuing.
 - Review skeptically. Do not self-justify the chapter to advance the workflow; if there is a concrete actionable fix, return issues_found.
 - Whether every requiredBeat is fulfilled; missing beats must appear in acceptance.requiredBeats.missingBeats.
@@ -519,7 +545,7 @@ The evidence field **must** list the counts, e.g. "AI-tic audit: #1=2 (over, cap
 ## Output Requirements
 Output valid JSON only, in this shape:
 {
-  "chapterNumber": ${chapter},
+  "chapterNumber": <reviewed chapter number>,
   "status": "clean",
   "acceptance": {
     "requiredBeats": {
@@ -575,8 +601,36 @@ Rules:
 - If acceptance.requiredBeats.missingBeats is not empty, requiredBeats.status must be "fail".
 - If any acceptance item is "fail", include a matching issue with a concrete fix.
 - evidence must be specific; do not write "possibly" or "maybe".
-${strictJsonOutputRules()}`,
-    };
+${strictJsonOutputRules()}`;
+
+  // ---- Segment 2: per-review meta (volatile) ----
+  const reviewMetaSegment = `## This Review
+- Target chapter: ${chapter}
+- The output JSON's chapterNumber field must equal ${chapter}.`;
+
+  const segments = [
+    {
+      id: 'rules',
+      text: rulesSegment,
+      cacheable: true,
+      description: 'Stable review criteria + AI-tic audit table + JSON schema template. Cache-friendly across every chapter review.',
+    },
+    {
+      id: 'review_meta',
+      text: reviewMetaSegment,
+      cacheable: false,
+      description: 'Per-review target chapter number.',
+    },
+  ];
+
+  const flatPrompt = `${rulesSegment}\n\n${reviewMetaSegment}${input.context ? `\n\n## Review Context\n${input.context}` : ''}`;
+
+  return {
+    purpose: 'chapter_review',
+    expectedFormat: 'JSON matching ChapterReviewSchema',
+    prompt: flatPrompt,
+    segments,
+  };
 }
 
 function buildChapterRevisionPrompt(input: PromptBuildInput): BuiltPrompt {

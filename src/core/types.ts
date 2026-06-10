@@ -254,11 +254,47 @@ export interface AgentState {
   updatedAt: string;
 }
 
+/**
+ * A hint to the host about which model tier suits a step.
+ * - 'cheap':    extractive / structured (memory_card-like). Haiku-class.
+ * - 'standard': analytical / constrained (reviews, JSON gen). Sonnet-class.
+ * - 'premium':  creative prose. Sonnet+ / Opus.
+ *
+ * Hosts are not required to obey but can use this to route to cheaper models
+ * on lightweight steps and save tokens.
+ */
+export type ModelHint = 'cheap' | 'standard' | 'premium';
+
+/**
+ * A piece of the prompt with a hint about whether the host can cache it
+ * across many calls of the same step.
+ *
+ * - cacheable=true segments are stable text (rules, audit tables, schema
+ *   templates). Hosts that support prompt caching (e.g. Anthropic API
+ *   cache_control) can mark these blocks ephemeral / extended.
+ * - cacheable=false segments are per-call data (current chapter number,
+ *   retrieved snippets, last chapter ending). Send fresh each call.
+ *
+ * Segments are concatenated (in order, separated by blank lines) to form
+ * StepInstruction.instruction for backward compatibility.
+ */
+export interface PromptSegment {
+  id: string;
+  text: string;
+  cacheable: boolean;
+  description?: string;
+}
+
 export interface StepInstruction {
   projectId: string;
   projectPath: string;
   currentStep: WorkflowStep;
+  /** Full concatenated instruction text (back-compat). */
   instruction: string;
   expectedFormat: string;
   context: string;
+  /** Structured prompt parts. Cache-aware hosts should use these. */
+  segments: PromptSegment[];
+  /** Suggested model tier for this step. */
+  modelHint: ModelHint;
 }

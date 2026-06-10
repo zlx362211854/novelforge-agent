@@ -284,10 +284,9 @@ ${strictJsonOutputRules()}`,
 function buildChapterPrompt(input: PromptBuildInput): BuiltPrompt {
   const ch = input.state.currentChapter;
   const isFirstChapter = ch <= 1;
-  return {
-    purpose: 'chapter',
-    expectedFormat: 'Markdown',
-    prompt: `你是一位擅长创作长篇网络小说的职业作者。请直接完成第 ${ch} 章正文。
+
+  // ---- Segment 1: stable rules / AI tic catalog (cache-friendly across many chapters) ----
+  const rulesSegment = `你是一位擅长创作长篇网络小说的职业作者。请按本章信息完成章节正文。
 
 ## 执行优先级
 1. 先严格遵守"本章架构、用户补充要求、故事圣经硬约束、风格圣经、上一章承接"。
@@ -303,12 +302,6 @@ function buildChapterPrompt(input: PromptBuildInput): BuiltPrompt {
 ## 字数目标
 - 默认目标 3000 字（±20%）。如果本章架构里指定了 targetWords，按那个目标。
 - 不要为了凑字数注水；也不要为了简洁牺牲冲突推进。
-
-## 结构要求
-${isFirstChapter
-  ? '- 这是第 1 章，不需要"上回提要"。开篇直接立人物、立情境。'
-  : '- 章首需要 2-3 句"上回提要"或"承接段"，让没读上一章的读者能续上（除非本章架构 requireRecap=false）。要自然带入，不要写成"上一章里……"的元叙述。'}
-- 章末必须有清晰的"钩子"：可以是悬念、反转、剧情承诺、情绪余韵或卷末高潮——按本章架构 endHookFocus 字段决定。如果未指定，默认用悬念。
 
 ## 风格
 - 严格执行上下文中的 Style Guide；sampleParagraph 只作为语言质感参考，不要复写其内容。
@@ -348,13 +341,48 @@ ${isFirstChapter
 - **破折号对白连缀**：禁止 \`"——X——Y——"\` 这种用破折号把对白切成残片的写法。古老/低语/破碎感用别的方式表达：声音质感的形容、停顿的环境描写、对方反应。
 - **Staccato 单句段链**：不要连续出现 **3 段以上**只有一句话的短段。即使是动作分镜，也要把相关动作合并成一段。"它低头。看了一眼自己腰间那块黑色的噬灵令牌。再抬头看着林北。紫光闪了两下。"——这就是反例，应合并为完整段落。
 
-${input.context ? `## 生成上下文\n${input.context}\n` : ''}## 输出要求
+## 输出要求
 - 输出 Markdown。
 - 第一行使用本章标题作为 H1，例如：# 章标题
 - H1 后直接进入正文。
 
 ## 自我审查（输出前默念一遍）
-扫一遍上面 15 条"AI 句式禁忌"。**特别检查括号内和对白内是否也守规则**。任何一条超标，**重写后再输出**，不要在输出里承认你重写过。`,
+扫一遍上面 15 条"AI 句式禁忌"。**特别检查括号内和对白内是否也守规则**。任何一条超标，**重写后再输出**，不要在输出里承认你重写过。`;
+
+  // ---- Segment 2: per-chapter meta (volatile, changes every chapter) ----
+  const chapterMetaSegment = `## 本章信息
+- 当前章号：第 ${ch} 章
+- 是否第一章：${isFirstChapter ? '是' : '否'}
+
+## 结构要求
+${isFirstChapter
+  ? '- 这是第 1 章，不需要"上回提要"。开篇直接立人物、立情境。'
+  : '- 章首需要 2-3 句"上回提要"或"承接段"，让没读上一章的读者能续上（除非本章架构 requireRecap=false）。要自然带入，不要写成"上一章里……"的元叙述。'}
+- 章末必须有清晰的"钩子"：可以是悬念、反转、剧情承诺、情绪余韵或卷末高潮——按本章架构 endHookFocus 字段决定。如果未指定，默认用悬念。`;
+
+  const segments = [
+    {
+      id: 'rules',
+      text: rulesSegment,
+      cacheable: true,
+      description: 'Stable workflow rules + 15-entry AI-tic catalog. Same text across every chapter generation call — cache-friendly.',
+    },
+    {
+      id: 'chapter_meta',
+      text: chapterMetaSegment,
+      cacheable: false,
+      description: 'Per-chapter metadata (chapter number, first-chapter branching).',
+    },
+  ];
+
+  // Back-compat: also build the flat prompt by concatenating segments + context.
+  const flatPrompt = `${rulesSegment}\n\n${chapterMetaSegment}${input.context ? `\n\n## 生成上下文\n${input.context}` : ''}`;
+
+  return {
+    purpose: 'chapter',
+    expectedFormat: 'Markdown',
+    prompt: flatPrompt,
+    segments,
   };
 }
 
@@ -469,13 +497,12 @@ ${strictJsonOutputRules()}`,
 }
 
 function buildChapterReviewPrompt(input: PromptBuildInput): BuiltPrompt {
-const chapter = input.state.pendingAction?.chapterNumber ?? input.state.currentChapter;
-return {
-    purpose: 'chapter_review',
-    expectedFormat: 'JSON matching ChapterReviewSchema',
-    prompt: `你是一名严格的章节审稿编辑。请审阅指定章节是否存在内部问题以及与既有设定的冲突。
+  const chapter = input.state.pendingAction?.chapterNumber ?? input.state.currentChapter;
 
-${input.context ? `## 审阅上下文\n${input.context}\n` : ''}## 审阅重点
+  // ---- Segment 1: stable rules / audit catalog (cache-friendly across reviews) ----
+  const rulesSegment = `你是一名严格的章节审稿编辑。请审阅指定章节是否存在内部问题以及与既有设定的冲突。
+
+## 审阅重点
 - 这是强制章节验收门槛：只要任一验收项 fail，status 必须是 "issues_found"，不能进入下一章。
 - 采取怀疑式审稿：不要为了推进流程而自证清白；只要存在可执行修复建议，就应该输出 issues_found。
 - requiredBeats 是否全部完成；缺失项必须写入 acceptance.requiredBeats.missingBeats。
@@ -483,7 +510,7 @@ ${input.context ? `## 审阅上下文\n${input.context}\n` : ''}## 审阅重点
 - 是否违反故事圣经、角色状态表、卷级节奏板或历史记忆。
 - 是否违反 Style Guide：叙事声音、句式密度、题材词汇、对白规则和禁用模式。
 - 是否违反 Style Guide.proseRhythm：短句密度过高、连续单句短段、靠换行制造伪节奏、心理解释过直白、重复同一句式。
-- 是否出现明显 AI 文痕迹：反复使用“不是X，而是Y”、过多“像是”、解释性总结句、现代吐槽破坏题材沉浸、对话承担设定说明过重。
+- 是否出现明显 AI 文痕迹：反复使用"不是X，而是Y"、过多"像是"、解释性总结句、现代吐槽破坏题材沉浸、对话承担设定说明过重。
 
 ### proseRhythm 强制 AI 句式审计（必须逐条计数）
 评估 proseRhythm 时**必须**数下面 15 种 AI 病句的出现次数。**适用于全章任何位置，包括括号内、对白内、内心独白**——不要把括号/引号当作豁免区。**任意一条超标**，proseRhythm.status 必须为 "fail"，并且在 issues 里写一条 category="style", severity="high"，evidence 必须引用原文片段。
@@ -518,7 +545,7 @@ evidence 字段里**必须列出**统计结果，例如："AI 句式审计：#1=
 ## 输出要求
 请只输出合法 JSON，格式如下：
 {
-  "chapterNumber": ${chapter},
+  "chapterNumber": <被审章号>,
   "status": "clean",
   "acceptance": {
     "requiredBeats": {
@@ -574,7 +601,35 @@ evidence 字段里**必须列出**统计结果，例如："AI 句式审计：#1=
 - acceptance.requiredBeats.missingBeats 非空时 requiredBeats.status 必须为 "fail"。
 - 任一 acceptance 项为 "fail" 时，必须在 issues 中写出对应问题与修复建议。
 - evidence 必须具体，不能写"疑似"、"可能"。
-${strictJsonOutputRules()}`,
+${strictJsonOutputRules()}`;
+
+  // ---- Segment 2: per-review meta (volatile) ----
+  const reviewMetaSegment = `## 本次审阅
+- 章号：第 ${chapter} 章
+- 输出 JSON 的 chapterNumber 字段必须等于 ${chapter}。`;
+
+  const segments = [
+    {
+      id: 'rules',
+      text: rulesSegment,
+      cacheable: true,
+      description: 'Stable review criteria + AI-tic audit table + JSON schema template. Cache-friendly across every chapter review.',
+    },
+    {
+      id: 'review_meta',
+      text: reviewMetaSegment,
+      cacheable: false,
+      description: 'Per-review target chapter number.',
+    },
+  ];
+
+  const flatPrompt = `${rulesSegment}\n\n${reviewMetaSegment}${input.context ? `\n\n## 审阅上下文\n${input.context}` : ''}`;
+
+  return {
+    purpose: 'chapter_review',
+    expectedFormat: 'JSON matching ChapterReviewSchema',
+    prompt: flatPrompt,
+    segments,
   };
 }
 

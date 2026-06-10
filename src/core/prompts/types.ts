@@ -20,10 +20,23 @@ export interface PromptBuildInput {
   context?: string;
 }
 
+export interface BuiltPromptSegment {
+  id: string;
+  text: string;
+  cacheable: boolean;
+  description?: string;
+}
+
 export interface BuiltPrompt {
   purpose: PromptPurpose;
   prompt: string;
   expectedFormat: string;
+  /**
+   * Optional structured prompt parts for cache-aware hosts.
+   * If omitted, the workflow synthesizes a single non-cacheable segment
+   * from `prompt`.
+   */
+  segments?: BuiltPromptSegment[];
 }
 
 export interface PromptPack {

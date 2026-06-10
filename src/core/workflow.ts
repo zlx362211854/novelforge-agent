@@ -1,6 +1,6 @@
 import { readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { WorkflowStep, AgentState, PendingAction, StepInstruction } from './types.js';
+import { WorkflowStep, AgentState, ModelHint, PendingAction, PromptSegment, StepInstruction } from './types.js';
 import { BuildContextInput, buildContext } from './contextBuilder.js';
 import { buildPromptForStep } from './prompts.js';
 import { loadState, saveJsonFile, saveRecoveryFile, saveState } from './projectStore.js';
@@ -64,6 +64,42 @@ async function contextForStep(state: AgentState): Promise<string> {
   return buildContext({ projectPath: state.projectPath, ...recipe(state) });
 }
 
+// =============================================================================
+// Per-step model-tier hint. Hosts may downgrade to cheaper models for
+// 'cheap' / 'standard' steps; chapter generation and amendments should
+// stay on the strongest available model.
+// =============================================================================
+const MODEL_HINT_BY_STEP: Record<WorkflowStep, ModelHint> = {
+  novel_metadata: 'standard',
+  story_bible: 'premium',
+  style_guide: 'standard',
+  architecture: 'premium',
+  architecture_extension: 'premium',
+  chapter: 'premium',
+  memory_card: 'cheap',
+  continuity_review: 'standard',
+  chapter_review: 'standard',
+  chapter_revision: 'premium',
+  cross_chapter_review: 'standard',
+  novel_metadata_amend: 'standard',
+  story_bible_amend: 'standard',
+  complete: 'cheap',
+};
+
+function buildSegments(promptText: string, context: string, providedSegments?: ReadonlyArray<PromptSegment>): PromptSegment[] {
+  // If a builder supplied segments, trust them but ensure the context segment
+  // (volatile per-call) is appended at the end.
+  if (providedSegments && providedSegments.length > 0) {
+    const segments: PromptSegment[] = providedSegments.map((s) => ({ ...s }));
+    if (context && !segments.some((s) => s.id === 'context')) {
+      segments.push({ id: 'context', text: `## Generation Context\n${context}`, cacheable: false, description: 'Per-call context (bible / threads / characters / retrieval).' });
+    }
+    return segments;
+  }
+  // Fallback: single non-cacheable segment from the full prompt text.
+  return [{ id: 'prompt', text: promptText, cacheable: false, description: 'Full instruction text (cache-aware builders may split this).' }];
+}
+
 async function instructionFor(state: AgentState): Promise<StepInstruction> {
   const base = {
     projectId: state.projectId,
@@ -72,12 +108,28 @@ async function instructionFor(state: AgentState): Promise<StepInstruction> {
   };
 
   if (state.currentStep === 'complete') {
-    return { ...base, instruction: 'The workflow is complete.', expectedFormat: 'No output required', context: '' };
+    const completeText = 'The workflow is complete.';
+    return {
+      ...base,
+      instruction: completeText,
+      expectedFormat: 'No output required',
+      context: '',
+      segments: [{ id: 'prompt', text: completeText, cacheable: true, description: 'Workflow complete marker.' }],
+      modelHint: MODEL_HINT_BY_STEP.complete,
+    };
   }
 
   const context = await contextForStep(state);
   const prompt = buildPromptForStep({ state, context });
-  return { ...base, instruction: prompt.prompt, expectedFormat: prompt.expectedFormat, context };
+  const segments = buildSegments(prompt.prompt, context, prompt.segments);
+  return {
+    ...base,
+    instruction: prompt.prompt,
+    expectedFormat: prompt.expectedFormat,
+    context,
+    segments,
+    modelHint: MODEL_HINT_BY_STEP[state.currentStep],
+  };
 }
 
 export async function getNextStep(projectPath: string): Promise<StepInstruction> {

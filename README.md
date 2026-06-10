@@ -334,6 +334,69 @@ Use a skill or prompt pack to teach a host assistant how to call NovelForge well
 6. (If the step needs packed context) add an entry to `CONTEXT_RECIPES` in [src/core/workflow.ts](src/core/workflow.ts).
 7. Add the step name to the `step` enum in [src/mcp/tools.ts](src/mcp/tools.ts) `submit_step_result`.
 
+## Token-cost optimization for hosts
+
+Every step instruction returned by `get_next_step` and `submit_step_result`
+includes two metadata fields hosts can use to cut LLM cost dramatically:
+
+### `modelHint` — let hosts route to cheaper models per step
+
+```ts
+type ModelHint = 'cheap' | 'standard' | 'premium';
+```
+
+| Step | Hint | Rationale |
+|---|---|---|
+| `chapter`, `chapter_revision`, `story_bible`, `architecture`, `architecture_extension` | `premium` | Creative prose generation. Use Sonnet+/Opus. |
+| `style_guide`, `chapter_review`, `cross_chapter_review`, `continuity_review`, `novel_metadata`, `*_amend` | `standard` | Analytical / structured output. Sonnet-class is enough. |
+| `memory_card`, `complete` | `cheap` | Extractive / trivial. Haiku-class is enough. |
+
+Hosts that respect this can run memory extraction on Haiku (≈5× cheaper)
+while keeping prose on Sonnet/Opus. Map the three tiers to your host's
+actual model lineup. Not a hard requirement — just a hint.
+
+### `segments[]` — prompt caching support
+
+`StepInstruction.segments` exposes the prompt as a list of parts, each
+tagged `cacheable: true | false`:
+
+```ts
+{
+  segments: [
+    { id: 'rules',         text: '<stable workflow rules…>',          cacheable: true },
+    { id: 'chapter_meta',  text: '## Current chapter\n- number: 7…',  cacheable: false },
+    { id: 'context',       text: '<bible + threads + retrieval>',     cacheable: false }
+  ]
+}
+```
+
+The `rules` segment of chapter generation (≈4–5K tokens with the AI-tic
+catalog) and of chapter review (≈3–4K tokens with the audit table) is
+**byte-identical across every call of that step**. Hosts that support
+prompt caching can apply Anthropic-style `cache_control: { type: 'ephemeral' }`
+to those segments and pay for them once per 5 minutes instead of every
+chapter. On a 30-chapter novel this saves roughly 100K input tokens
+(≈30% of total spend on Sonnet).
+
+The legacy `instruction` field is still the full concatenation, so
+cache-unaware hosts work without changes.
+
+### Example: Anthropic API direct usage
+
+```ts
+const reply = await anthropic.messages.create({
+  model: 'claude-sonnet-4-7',
+  system: [{ type: 'text', text: rulesSegment.text, cache_control: { type: 'ephemeral' } }],
+  messages: [{ role: 'user', content: [
+    { type: 'text', text: chapterMetaSegment.text },
+    { type: 'text', text: contextSegment.text },
+  ]}],
+});
+```
+
+Claude Code applies similar caching automatically when running through
+its session.
+
 ## Design principle
 
 The host's LLM is the only thing in this system that thinks. NovelForge is a workflow runtime that knows the *order* of work, the *shape* of every artifact, and the *vocabulary* of the domain — and refuses to let the host save anything that violates those rules. Long-form fiction needs that discipline more than it needs another LLM wrapper.
