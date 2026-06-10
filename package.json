@@ -15,13 +15,13 @@
     "bm25",
     "retrieval"
   ],
-  "homepage": "https://github.com/linkzhao/novelforge-agent#readme",
+  "homepage": "https://github.com/zlx362211854/novelforge-agent#readme",
   "bugs": {
-    "url": "https://github.com/linkzhao/novelforge-agent/issues"
+    "url": "https://github.com/zlx362211854/novelforge-agent/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/linkzhao/novelforge-agent.git"
+    "url": "git+https://github.com/zlx362211854/novelforge-agent.git"
   },
   "license": "MIT",
   "author": "linkzhao <linkzhao8@gmail.com>",
