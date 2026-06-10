@@ -330,6 +330,9 @@ ${isFirstChapter
 - Do not output summaries, bullet points, lectures, explanatory prefaces, or meta-text like "what I changed".
 
 ## Forbidden AI Tics (every violation counts as a HIGH-severity review issue and triggers chapter_revision)
+
+**Scope**: all rules below apply **everywhere in the chapter** — inside parentheses \`( )\`, inside quoted dialogue, inside interior monologue, inside flashback. Do NOT treat parentheses as a rule-free zone.
+
 - "**Not X, but (rather) Y**" / "It wasn't X, it was Y": at most **once** per chapter, and only when the contrast is real. Do not use it as a thinking-out-loud transition.
 - "**In that moment / At that instant / Right then / Just then**": at most **once** per chapter. Do not stamp every emotional peak with it.
 - **Sensory tricolon**: do not write "He saw A. He heard B. He smelled C." Pick one.
@@ -341,6 +344,10 @@ ${isFirstChapter
 - **Simile pile-up**: do not have "as if" + "like" + "as though" in the same paragraph.
 - **Repeating the subject**: do not write "Chen Qingyun. Chen Qingyun walked over. Chen Qingyun said." Use pronouns or continuous action.
 - **Rhetorical-question lyric**: do not use "Wasn't it so? / Who could have imagined? / How could it not be?" as fake-deep filler.
+- **Parenthetical interior monologue paragraph**: never let a \`( ... )\` stand alone as its own paragraph for inner thought. Integrate interiority into prose or action. **0 standalone parenthetical paragraphs** per chapter. Short inline parentheticals (≤15 chars, e.g. a clarification) are fine.
+- **Em-dash overuse**: \`—\` / \`——\` is an emphasis tool, not narrative connective tissue. At most **2 em-dashes per chapter**, only for real interruption or definition. **Forbidden**: multiple em-dashes in a single sentence (\`X—Y—Z—\`).
+- **Em-dash dialogue fragmenting**: forbid \`"—X—Y—"\` dialogue cut into fragments by em-dashes. Convey ancient / whispered / broken speech via voice texture description, pause-via-setting, or listener reaction.
+- **Staccato single-sentence chain**: never have **3+ consecutive paragraphs** of just one sentence. Even an action beat sequence should merge related beats into a paragraph. "It lowered its head. It glanced at the token at its waist. It looked up again. Purple light flickered twice." — this is the anti-pattern; merge into a full paragraph.
 
 ${input.context ? `## Generation Context\n${input.context}\n` : ''}## Output Requirements
 - Output Markdown.
@@ -348,7 +355,7 @@ ${input.context ? `## Generation Context\n${input.context}\n` : ''}## Output Req
 - After the H1, begin the prose directly.
 
 ## Self-check (before output)
-Scan the 11 Forbidden AI Tics above. If any one is over budget, **rewrite first, then output**. Do not admit in the output that you rewrote.`,
+Scan the 15 Forbidden AI Tics above. **Specifically verify parentheses and quoted dialogue also obey the rules**. If any tic is over budget, **rewrite first, then output**. Do not admit in the output that you rewrote.`,
   };
 }
 
@@ -480,7 +487,7 @@ ${input.context ? `## Review Context\n${input.context}\n` : ''}## Review Focus
 - Whether it shows obvious AI-prose artifacts: repeated "not X but Y" constructions, too many "as if" phrases, explanatory summary sentences, modern jokes that break genre immersion, or dialogue overloaded with exposition.
 
 ### Mandatory AI-Tic Audit (proseRhythm)
-When evaluating proseRhythm you **must** count the following 11 AI-prose tics. If **any one** is over budget, proseRhythm.status must be "fail", and one issue must be raised with category="style", severity="high", evidence quoting the offending passage.
+When evaluating proseRhythm you **must** count the following 15 AI-prose tics. The audit **applies everywhere in the chapter, including inside parentheses, inside quoted dialogue, and inside interior monologue** — do not treat brackets or quotes as exempt zones. If **any one** is over budget, proseRhythm.status must be "fail", and one issue must be raised with category="style", severity="high", evidence quoting the offending passage.
 
 | # | Tic | Per-chapter cap |
 |---|-----|-----------------|
@@ -495,8 +502,12 @@ When evaluating proseRhythm you **must** count the following 11 AI-prose tics. I
 | 9 | Simile pile-up: "as if" + "like" + "as though" in the same paragraph | 0 |
 | 10 | Subject repetition: "Chen Qingyun. Chen Qingyun walked over. Chen Qingyun said." | 0 |
 | 11 | Rhetorical-question lyric: "Wasn't it so? / How could it not? / Who could have imagined?" | 0 |
+| 12 | Parenthetical interior monologue: \`( ... )\` standing alone as a paragraph | 0 (≤15-char inline parentheticals are fine) |
+| 13 | Em-dash total count (\`—\` / \`——\`) | ≤ 2 |
+| 14 | Em-dash dialogue fragmenting: \`"—X—Y—"\` form | 0 |
+| 15 | Staccato single-sentence chain: ≥3 consecutive one-sentence paragraphs | 0 |
 
-The evidence field **must** list the counts, e.g. "AI-tic audit: #1=2 (over, cap 1), #5=1 (over, cap 0), others=0".
+The evidence field **must** list the counts, e.g. "AI-tic audit: #1=2 (over, cap 1), #12=1 (over, cap 0), #13=4 (over, cap 2), #15=5 (over, cap 0), others=0".
 - Whether the ending has a clear hook that matches the chapter architecture endHookFocus.
 - Whether it repeats prior chapter beats, conflict patterns, reveals, or dialogue functions.
 - Character voice, motivation, and state vs the story bible and prior memory.
