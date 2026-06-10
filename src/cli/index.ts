@@ -66,6 +66,8 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd()):
     const totalChapters = valueAfter(argv, '--total-chapters');
     const lengthPreset = parseLengthPreset(valueAfter(argv, '--length'));
     const outputDir = valueAfter(argv, '--output') || 'novels';
+    const chaptersPerRunArg = valueAfter(argv, '--chapters-per-run');
+    const chaptersPerRun = chaptersPerRunArg ? Number(chaptersPerRunArg) : 1;
     const result = await createProject({
       workspaceRoot: cwd,
       prompt,
@@ -74,6 +76,7 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd()):
       targetChapters: chapters,
       lengthPreset,
       plannedTotalChapters: totalChapters ? Number(totalChapters) : undefined,
+      chaptersPerRun,
     });
     const next = await getNextStep(result.state.projectPath);
     console.log(JSON.stringify({ state: result.state, next }, null, 2));

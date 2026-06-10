@@ -118,6 +118,7 @@ test('MCP amend_novel_metadata renames project directory when title changes', as
     const result = parseTextResult(await toolHandler(server, 'amend_novel_metadata')({
       projectPath: oldProjectPath,
       title: '灵石会下崽',
+      verbose: true,
     }));
 
     assert.equal(result.renamed, true);
@@ -177,8 +178,9 @@ test('MCP save_chapter submits through workflow and advances to chapter_review',
       chapterNumber: 1,
       title: '旧车站',
       contentPath: '.agent-recovery/chapter-001-draft.md',
+      verbose: true,
     }) as { content: Array<{ text: string }> }).content[0].text;
-    const saveResult = JSON.parse(saveRaw);
+    const saveResult = parseTextResult({ content: [{ text: saveRaw }] });
 
     assert.equal(saveResult.validation.ok, true);
     assert.equal(saveResult.state.currentStep, 'chapter_review');
@@ -187,7 +189,8 @@ test('MCP save_chapter submits through workflow and advances to chapter_review',
     assert.equal('context' in saveResult.next, false);
     assert.equal('instruction' in saveResult.next, false);
     assert.equal(saveRaw.includes('UNIQUE_LONG_CHAPTER_MARKER'), false);
-    assert.equal(saveRaw.length < 5000, true);
+    // verbose markdown summary + raw JSON
+    assert.equal(saveRaw.length < 8000, true);
 
     const nextState = await loadState(projectPath);
     assert.equal(nextState.currentStep, 'chapter_review');

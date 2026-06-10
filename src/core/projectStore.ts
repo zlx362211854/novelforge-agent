@@ -12,6 +12,7 @@ export interface CreateProjectInput {
   targetChapters?: number;
   lengthPreset?: NovelLengthPreset;
   plannedTotalChapters?: number;
+  chaptersPerRun?: number;
 }
 
 export interface CreateProjectResult {
@@ -92,6 +93,7 @@ export async function createProject(input: CreateProjectInput): Promise<CreatePr
     targetChapters,
     Math.floor(Number(input.plannedTotalChapters ?? plannedTotalForLengthPreset(lengthPreset)))
   );
+  const chaptersPerRun = Math.max(1, Math.floor(Number(input.chaptersPerRun ?? 1)));
   const baseSlug = makeProjectSlug(input.prompt.slice(0, 48));
   const suffix = randomBytes(3).toString('hex');
   const slug = `${baseSlug}-${suffix}`;
@@ -108,6 +110,8 @@ export async function createProject(input: CreateProjectInput): Promise<CreatePr
     targetChapters,
     lengthPreset,
     plannedTotalChapters,
+    chaptersPerRun,
+    runStartChapter: 1,
     currentStep: 'novel_metadata',
     currentChapter: 1,
     completedSteps: [],

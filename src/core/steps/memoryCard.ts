@@ -31,12 +31,19 @@ export const memoryCardHandler: StepHandler = async (state, content) => {
   const nextChapter = state.currentChapter + 1;
   const plannedTotalChapters = state.plannedTotalChapters ?? state.targetChapters;
   const plannedMax = await maxPlannedChapter(state.projectPath);
+  const runStart = state.runStartChapter ?? 1;
+  const perRunCap = state.chaptersPerRun;
+  const chaptersWrittenThisRun = nextChapter - runStart;
+  const runBudgetExhausted =
+    typeof perRunCap === 'number' && perRunCap > 0 && chaptersWrittenThisRun >= perRunCap;
   const nextStep =
-    nextChapter > plannedTotalChapters
-      ? 'continuity_review'
-      : nextChapter > plannedMax
-        ? 'architecture_extension'
-        : 'chapter';
+    runBudgetExhausted && nextChapter <= plannedTotalChapters
+      ? 'complete'
+      : nextChapter > plannedTotalChapters
+        ? 'continuity_review'
+        : nextChapter > plannedMax
+          ? 'architecture_extension'
+          : 'chapter';
   return {
     savedPaths: [path],
     fileEntries: { [`memory-${state.currentChapter}`]: relative },

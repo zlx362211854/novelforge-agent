@@ -233,6 +233,17 @@ export interface AgentState {
   targetChapters: number;
   lengthPreset?: NovelLengthPreset;
   plannedTotalChapters: number;
+  /**
+   * Maximum chapters this invocation should generate before pausing the
+   * workflow at `complete`. Counted as `currentChapter - runStartChapter`.
+   * Undefined on legacy projects = no per-run cap (pre-feature behavior).
+   */
+  chaptersPerRun?: number;
+  /**
+   * Chapter number when the current run was started/resumed. Used together
+   * with chaptersPerRun to decide when to pause.
+   */
+  runStartChapter?: number;
   currentStep: WorkflowStep;
   currentChapter: number;
   completedSteps: WorkflowStep[];

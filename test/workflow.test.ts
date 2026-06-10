@@ -380,6 +380,7 @@ test('workflow requests architecture extension when written chapters reach plann
       outputDir: 'novels',
       targetChapters: 1,
       plannedTotalChapters: 2,
+      chaptersPerRun: 99,
     });
 
     const metadata = await submitStepResult({
@@ -468,6 +469,7 @@ test('architecture extension rejects overloaded non-final chapter plans', async 
       outputDir: 'novels',
       targetChapters: 1,
       plannedTotalChapters: 3,
+      chaptersPerRun: 99,
     });
 
     const metadata = await submitStepResult({

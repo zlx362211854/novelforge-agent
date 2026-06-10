@@ -10,6 +10,7 @@ import {
   amendStoryBible,
   assertProjectPath,
   buildContext,
+  continueProject,
   createProject,
   deleteChapter,
   forkProject,
@@ -146,6 +147,135 @@ function formatToolResult(input: FormatToolResultInput) {
       text: lines.join('\n'),
     }],
   };
+}
+
+// =============================================================================
+// Shared formatter for tools that return a `boundInstruction` shape
+// (instruction + context + truncation hints + modelHint). Used by
+// get_next_step, review_chapter, revise_chapter, cross_chapter_review.
+// =============================================================================
+function formatBoundInstruction(opts: {
+  title: string;
+  status?: 'info' | 'success';
+  bound: Record<string, unknown> & { currentStep: string; expectedFormat: string };
+  extraBullets?: ToolResultBullet[];
+  verbose?: boolean;
+}) {
+  const b = opts.bound;
+  const bullets: ToolResultBullet[] = [
+    { icon: '⏭', label: 'Step', value: `\`${b.currentStep}\`` },
+    { icon: '📝', label: 'Expected', value: b.expectedFormat },
+  ];
+  if (b.modelHint) bullets.push({ icon: '🤖', label: 'modelHint', value: String(b.modelHint) });
+  const fullContextPath = b.fullContextPath as string | undefined;
+  if (b.contextTruncated && fullContextPath) {
+    bullets.push({ icon: '⚠️', label: 'Truncated', value: `full at \`${fullContextPath}\`` });
+  }
+  if (opts.extraBullets) bullets.push(...opts.extraBullets);
+  const sections: ToolResultSection[] = [];
+  const instrText = (b.instruction as string | undefined) ?? (b.instructionPreview as string | undefined);
+  if (instrText) sections.push({ heading: 'Instruction', body: instrText });
+  const ctxText = (b.context as string | undefined) ?? (b.contextPreview as string | undefined);
+  if (ctxText) sections.push({ heading: 'Context', body: ctxText });
+  return formatToolResult({
+    status: opts.status ?? 'info',
+    title: opts.title,
+    bullets,
+    sections,
+    verbose: opts.verbose,
+    rawForVerbose: b,
+  });
+}
+
+// =============================================================================
+// Shared formatter for tools that return a `boundContext` shape
+// (context only, no instruction). Used by get_context, generate_chapter,
+// extract_memory_card.
+// =============================================================================
+function formatBoundContext(opts: {
+  title: string;
+  bound: Record<string, unknown>;
+  extraBullets?: ToolResultBullet[];
+  hint?: string;
+  verbose?: boolean;
+}) {
+  const b = opts.bound;
+  const bullets: ToolResultBullet[] = [];
+  const contextLength = b.contextLength as number | undefined;
+  if (typeof contextLength === 'number') bullets.push({ icon: '📏', label: 'Context length', value: `${contextLength} chars` });
+  const fullContextPath = b.fullContextPath as string | undefined;
+  if (b.contextTruncated && fullContextPath) {
+    bullets.push({ icon: '⚠️', label: 'Truncated', value: `full at \`${fullContextPath}\`` });
+  }
+  if (opts.hint) bullets.push({ icon: 'ℹ️', label: 'Hint', value: opts.hint });
+  if (opts.extraBullets) bullets.push(...opts.extraBullets);
+  const sections: ToolResultSection[] = [];
+  const ctxText = (b.context as string | undefined) ?? (b.contextPreview as string | undefined);
+  if (ctxText) sections.push({ heading: 'Context', body: ctxText });
+  return formatToolResult({
+    status: 'info',
+    title: opts.title,
+    bullets,
+    sections,
+    verbose: opts.verbose,
+    rawForVerbose: b,
+  });
+}
+
+// =============================================================================
+// Shared formatter for tools that return a `compactSubmitResult` shape
+// (state + savedPaths + next pointer). Used by submit_step_result success
+// path and save_chapter.
+// =============================================================================
+function formatSubmitSuccess(opts: {
+  title: string;
+  compact: ReturnType<typeof compactSubmitResult>;
+  verbose?: boolean;
+}) {
+  const compact = opts.compact;
+  const bullets: ToolResultBullet[] = [
+    { icon: '⏭', label: 'Now at', value: `\`${compact.state.currentStep}\`` },
+  ];
+  if (compact.state.currentChapter && compact.state.currentChapter > 0) {
+    bullets.push({ icon: '📖', label: 'Chapter', value: String(compact.state.currentChapter) });
+  }
+  if (compact.savedPaths && compact.savedPaths.length > 0) {
+    bullets.push({ icon: '💾', label: 'Saved', value: compact.savedPaths.map((p) => `\`${p}\``).join(', ') });
+  }
+  if (compact.next) {
+    bullets.push({ icon: '➡️', label: 'Next', value: `\`${compact.next.currentStep}\` (${compact.next.expectedFormat})` });
+    bullets.push({ icon: 'ℹ️', label: 'Hint', value: 'Call `get_next_step` for the next full instruction.' });
+  }
+  if (compact.state.forceAdvanced && compact.state.forceAdvanced.length > 0) {
+    bullets.push({ icon: '⚠️', label: 'Force-advanced chapters', value: compact.state.forceAdvanced.join(', ') });
+  }
+  return formatToolResult({
+    title: opts.title,
+    bullets,
+    verbose: opts.verbose,
+    rawForVerbose: compact,
+  });
+}
+
+function formatSubmitFailure(opts: {
+  title: string;
+  compact: ReturnType<typeof compactSubmitResult>;
+  verbose?: boolean;
+}) {
+  const compact = opts.compact;
+  const bullets: ToolResultBullet[] = [
+    { icon: '⛔', label: 'Reason', value: compact.validation.message },
+  ];
+  if (compact.recoveryPath) bullets.push({ icon: '💾', label: 'Recovery', value: `\`${compact.recoveryPath}\`` });
+  bullets.push({ icon: '⏭', label: 'Still at', value: `\`${compact.state.currentStep}\`` });
+  bullets.push({ icon: '🔄', label: 'Action', value: 'Fix the content and re-submit.' });
+  return formatToolResult({
+    status: 'error',
+    title: opts.title,
+    bullets,
+    verbose: opts.verbose,
+    rawForVerbose: compact,
+  });
 }
 
 function safeLabel(label: string): string {
@@ -295,13 +425,22 @@ function pathFromObject(value: unknown): string | undefined {
 function projectPathFromTextResult(value: unknown): string | undefined {
   const direct = pathFromObject(value);
   if (direct) return direct;
-  try {
-    const text = (value as { content?: Array<{ text?: string }> }).content?.[0]?.text;
-    if (!text) return undefined;
-    return pathFromObject(JSON.parse(text));
-  } catch {
-    return undefined;
+  const text = (value as { content?: Array<{ text?: string }> }).content?.[0]?.text;
+  if (!text) return undefined;
+  // Tool results may be plain JSON, or markdown with a ```json fenced block
+  // (verbose mode in formatToolResult). Try the fenced block first, then the
+  // whole text as a fallback.
+  const fenced = text.match(/```json\n([\s\S]*?)\n```/);
+  const candidates = fenced ? [fenced[1], text] : [text];
+  for (const candidate of candidates) {
+    try {
+      const path = pathFromObject(JSON.parse(candidate));
+      if (path) return path;
+    } catch {
+      // try next candidate
+    }
   }
+  return undefined;
 }
 
 function resolveProjectFile(projectPath: string, inputPath: string): string {
@@ -405,9 +544,10 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       lengthPreset: z.enum(['short', 'medium', 'long']).default('medium'),
       targetChapters: z.number().int().positive().default(5),
       plannedTotalChapters: z.number().int().positive().optional(),
+      chaptersPerRun: z.number().int().positive().default(1).describe('How many chapters to write in this invocation before pausing at complete. Default 1. Use continue_novel_project to resume for more chapters.'),
       verbose: z.boolean().default(false),
     },
-    async ({ prompt, language, outputDir, lengthPreset, targetChapters, plannedTotalChapters, verbose }) => {
+    async ({ prompt, language, outputDir, lengthPreset, targetChapters, plannedTotalChapters, chaptersPerRun, verbose }) => {
       const result = await createProject({
         workspaceRoot: options.workspaceRoot,
         prompt,
@@ -416,6 +556,7 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
         lengthPreset,
         targetChapters,
         plannedTotalChapters,
+        chaptersPerRun,
       });
       const next = await boundInstruction(await getNextStep(result.state.projectPath)) as Record<string, unknown> & {
         currentStep: string;
@@ -426,7 +567,8 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
         title: 'Project created',
         bullets: [
           { icon: '📁', label: 'Path', value: `\`${result.state.projectPath}\`` },
-          { icon: '🎯', label: 'Chapters', value: `${result.state.targetChapters} (first batch) of ${result.state.plannedTotalChapters} planned${result.state.lengthPreset ? ` — ${result.state.lengthPreset}` : ''}` },
+          { icon: '🎯', label: 'Chapters', value: `${result.state.targetChapters} (first architecture batch) of ${result.state.plannedTotalChapters} planned${result.state.lengthPreset ? ` — ${result.state.lengthPreset}` : ''}` },
+          { icon: '⏸', label: 'Per-run budget', value: `${result.state.chaptersPerRun ?? 1} chapter(s) — workflow will pause at \`complete\`; call \`continue_novel_project\` to write more` },
           { icon: '⏭', label: 'Next step', value: `\`${next.currentStep}\`` },
           { icon: '📝', label: 'Expected', value: next.expectedFormat },
         ],
@@ -520,8 +662,9 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
         description: z.string().min(1),
       })).optional(),
       reason: z.string().optional(),
+      verbose: z.boolean().default(false),
     },
-    async ({ projectPath, content, title, genre, premise, language, style, coreCast, reason }) => {
+    async ({ projectPath, content, title, genre, premise, language, style, coreCast, reason, verbose }) => {
       const result = await amendNovelMetadata({
         projectPath: checkedProjectPath(projectPath),
         content,
@@ -533,11 +676,18 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
         coreCast,
         reason,
       });
-      return textResult({
-        ...result,
-        hint: result.renamed
-          ? 'The project directory was renamed. Use projectPath from this result for all subsequent NovelForge calls.'
-          : 'Metadata updated. Continue using the returned projectPath.',
+      const bullets: ToolResultBullet[] = [
+        { icon: '📁', label: 'Path', value: `\`${result.projectPath}\`` },
+        { icon: '💾', label: 'Saved', value: `\`${result.savedPath}\`` },
+      ];
+      if (result.renamed) {
+        bullets.push({ icon: '⚠️', label: 'Renamed', value: `previously \`${result.oldProjectPath}\` — use the new projectPath above for all subsequent calls` });
+      }
+      return formatToolResult({
+        title: result.renamed ? 'Metadata amended + project renamed' : 'Metadata amended',
+        bullets,
+        verbose,
+        rawForVerbose: result,
       });
     }
   );
@@ -547,33 +697,11 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     'Return the next required generation step for a novel project. Large prompts/contexts are returned as previews plus fullContextPath.',
     { projectPath: z.string().min(1), verbose: z.boolean().default(false) },
     async ({ projectPath, verbose }) => {
-      const instruction = await boundInstruction(await getNextStep(checkedProjectPath(projectPath))) as Record<string, unknown> & {
+      const bound = await boundInstruction(await getNextStep(checkedProjectPath(projectPath))) as Record<string, unknown> & {
         currentStep: string;
         expectedFormat: string;
-        modelHint?: string;
       };
-      const bullets: ToolResultBullet[] = [
-        { icon: '⏭', label: 'Step', value: `\`${instruction.currentStep}\`` },
-        { icon: '📝', label: 'Expected', value: instruction.expectedFormat },
-      ];
-      if (instruction.modelHint) bullets.push({ icon: '🤖', label: 'modelHint', value: instruction.modelHint });
-      const fullContextPath = instruction.fullContextPath as string | undefined;
-      if (instruction.contextTruncated && fullContextPath) {
-        bullets.push({ icon: '⚠️', label: 'Context truncated', value: `${instruction.contextLength} chars — full at \`${fullContextPath}\`` });
-      }
-      const sections: ToolResultSection[] = [];
-      const instrText = (instruction.instruction as string | undefined) ?? (instruction.instructionPreview as string | undefined);
-      if (instrText) sections.push({ heading: 'Instruction', body: instrText });
-      const ctxText = (instruction.context as string | undefined) ?? (instruction.contextPreview as string | undefined);
-      if (ctxText) sections.push({ heading: 'Context', body: ctxText });
-      return formatToolResult({
-        status: 'info',
-        title: 'Next step',
-        bullets,
-        sections,
-        verbose,
-        rawForVerbose: instruction,
-      });
+      return formatBoundInstruction({ title: 'Next step', bound, verbose });
     }
   );
 
@@ -605,45 +733,10 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       const resolvedContent = await contentFromInput(checked, content, contentPath);
       const result = await submitStepResult({ projectPath: checked, step, content: resolvedContent });
       const compact = compactSubmitResult(result);
-
       if (!compact.validation.ok) {
-        const bullets: ToolResultBullet[] = [
-          { icon: '⛔', label: 'Reason', value: compact.validation.message },
-        ];
-        if (compact.recoveryPath) bullets.push({ icon: '💾', label: 'Recovery', value: `\`${compact.recoveryPath}\`` });
-        bullets.push({ icon: '⏭', label: 'Still at', value: `\`${compact.state.currentStep}\`` });
-        bullets.push({ icon: '🔄', label: 'Action', value: 'Fix the content and re-submit.' });
-        return formatToolResult({
-          status: 'error',
-          title: `submit_step_result rejected (${step})`,
-          bullets,
-          verbose,
-          rawForVerbose: compact,
-        });
+        return formatSubmitFailure({ title: `submit_step_result rejected (${step})`, compact, verbose });
       }
-
-      const bullets: ToolResultBullet[] = [
-        { icon: '⏭', label: 'Now at', value: `\`${compact.state.currentStep}\`` },
-      ];
-      if (compact.state.currentChapter && compact.state.currentChapter > 0) {
-        bullets.push({ icon: '📖', label: 'Chapter', value: String(compact.state.currentChapter) });
-      }
-      if (compact.savedPaths && compact.savedPaths.length > 0) {
-        bullets.push({ icon: '💾', label: 'Saved', value: compact.savedPaths.map((p) => `\`${p}\``).join(', ') });
-      }
-      if (compact.next) {
-        bullets.push({ icon: '➡️', label: 'Next', value: `\`${compact.next.currentStep}\` (${compact.next.expectedFormat})` });
-        bullets.push({ icon: 'ℹ️', label: 'Hint', value: 'Call `get_next_step` for the next full instruction.' });
-      }
-      if (compact.state.forceAdvanced && compact.state.forceAdvanced.length > 0) {
-        bullets.push({ icon: '⚠️', label: 'Force-advanced chapters', value: compact.state.forceAdvanced.join(', ') });
-      }
-      return formatToolResult({
-        title: `${step} submitted`,
-        bullets,
-        verbose,
-        rawForVerbose: compact,
-      });
+      return formatSubmitSuccess({ title: `${step} submitted`, compact, verbose });
     }
   );
 
@@ -665,8 +758,9 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       chapterNumber: z.number().int().positive().optional(),
       start: z.number().int().positive().optional(),
       end: z.number().int().positive().optional(),
+      verbose: z.boolean().default(false),
     },
-    async ({ projectPath, purpose, chapterNumber, start, end }) => {
+    async ({ projectPath, purpose, chapterNumber, start, end, verbose }) => {
       const checked = checkedProjectPath(projectPath);
       const range = start && end ? { start, end } : undefined;
       const context = await buildContext({
@@ -675,7 +769,18 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
         chapterNumber,
         range,
       });
-      return textResult(await boundContext(checked, `context-${purpose}`, context, { projectPath: checked, purpose, chapterNumber, range }));
+      const bound = await boundContext(checked, `context-${purpose}`, context, { projectPath: checked, purpose, chapterNumber, range });
+      const extraBullets: ToolResultBullet[] = [
+        { icon: '🎯', label: 'Purpose', value: purpose },
+      ];
+      if (chapterNumber) extraBullets.push({ icon: '📖', label: 'Chapter', value: String(chapterNumber) });
+      if (range) extraBullets.push({ icon: '📏', label: 'Range', value: `${range.start}-${range.end}` });
+      return formatBoundContext({
+        title: 'get_context',
+        bound: bound as Record<string, unknown>,
+        extraBullets,
+        verbose,
+      });
     }
   );
 
@@ -688,8 +793,9 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       title: z.string().min(1),
       content: z.string().min(1).optional(),
       contentPath: z.string().min(1).optional(),
+      verbose: z.boolean().default(false),
     },
-    async ({ projectPath, chapterNumber, title, content, contentPath }) => {
+    async ({ projectPath, chapterNumber, title, content, contentPath, verbose }) => {
       const checked = checkedProjectPath(projectPath);
       const resolvedContent = await contentFromInput(checked, content, contentPath);
       const state = await loadState(checked);
@@ -698,11 +804,15 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
           `save_chapter requires currentStep="chapter" and currentChapter=${chapterNumber}; got currentStep="${state.currentStep}", currentChapter=${state.currentChapter}`
         );
       }
-      return textResult(compactSubmitResult(await submitStepResult({
+      const compact = compactSubmitResult(await submitStepResult({
         projectPath: checked,
         step: 'chapter',
         content: `# ${title}\n\n${resolvedContent}`,
-      })));
+      }));
+      if (!compact.validation.ok) {
+        return formatSubmitFailure({ title: `save_chapter rejected (ch ${chapterNumber})`, compact, verbose });
+      }
+      return formatSubmitSuccess({ title: `Chapter ${chapterNumber} saved`, compact, verbose });
     }
   );
 
@@ -712,15 +822,23 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     {
       projectPath: z.string().min(1),
       chapterNumber: z.number().int().positive(),
+      verbose: z.boolean().default(false),
     },
-    async ({ projectPath, chapterNumber }) => {
+    async ({ projectPath, chapterNumber, verbose }) => {
       const checked = checkedProjectPath(projectPath);
       const context = await buildContext({ projectPath: checked, purpose: 'chapter_generation', chapterNumber });
-      return textResult(await boundContext(checked, `generate-chapter-${chapterNumber}`, context, {
+      const bound = await boundContext(checked, `generate-chapter-${chapterNumber}`, context, {
         projectPath: checked,
         chapterNumber,
         hint: 'Persist the result via submit_step_result(step="chapter") when the workflow currentStep is "chapter"; the workflow then requires chapter_review before memory_card.',
-      }));
+      });
+      return formatBoundContext({
+        title: `generate_chapter — chapter ${chapterNumber}`,
+        bound: bound as Record<string, unknown>,
+        extraBullets: [{ icon: '📖', label: 'Chapter', value: String(chapterNumber) }],
+        hint: 'Submit via submit_step_result(step="chapter") when workflow currentStep is "chapter".',
+        verbose,
+      });
     }
   );
 
@@ -730,15 +848,23 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     {
       projectPath: z.string().min(1),
       chapterNumber: z.number().int().positive(),
+      verbose: z.boolean().default(false),
     },
-    async ({ projectPath, chapterNumber }) => {
+    async ({ projectPath, chapterNumber, verbose }) => {
       const checked = checkedProjectPath(projectPath);
       const context = await buildContext({ projectPath: checked, purpose: 'memory_extraction', chapterNumber });
-      return textResult(await boundContext(checked, `memory-extraction-${chapterNumber}`, context, {
+      const bound = await boundContext(checked, `memory-extraction-${chapterNumber}`, context, {
         projectPath: checked,
         chapterNumber,
         hint: 'Submit the extracted memory card via submit_step_result with step="memory_card" when the workflow currentStep matches.',
-      }));
+      });
+      return formatBoundContext({
+        title: `extract_memory_card — chapter ${chapterNumber}`,
+        bound: bound as Record<string, unknown>,
+        extraBullets: [{ icon: '📖', label: 'Chapter', value: String(chapterNumber) }],
+        hint: 'Submit via submit_step_result(step="memory_card") when workflow currentStep matches.',
+        verbose,
+      });
     }
   );
 
@@ -748,9 +874,17 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     {
       projectPath: z.string().min(1),
       chapterNumber: z.number().int().positive(),
+      verbose: z.boolean().default(false),
     },
-    async ({ projectPath, chapterNumber }) =>
-      textResult(await boundInstruction(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'chapter_review', chapterNumber })))
+    async ({ projectPath, chapterNumber, verbose }) => {
+      const bound = await boundInstruction(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'chapter_review', chapterNumber })) as Record<string, unknown> & { currentStep: string; expectedFormat: string };
+      return formatBoundInstruction({
+        title: `Review chapter ${chapterNumber}`,
+        bound,
+        extraBullets: [{ icon: '📖', label: 'Chapter', value: String(chapterNumber) }],
+        verbose,
+      });
+    }
   );
 
   tool(
@@ -760,9 +894,19 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       projectPath: z.string().min(1),
       chapterNumber: z.number().int().positive(),
       feedback: z.string().optional(),
+      verbose: z.boolean().default(false),
     },
-    async ({ projectPath, chapterNumber, feedback }) =>
-      textResult(await boundInstruction(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'chapter_revision', chapterNumber, feedback })))
+    async ({ projectPath, chapterNumber, feedback, verbose }) => {
+      const bound = await boundInstruction(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'chapter_revision', chapterNumber, feedback })) as Record<string, unknown> & { currentStep: string; expectedFormat: string };
+      const extra: ToolResultBullet[] = [{ icon: '📖', label: 'Chapter', value: String(chapterNumber) }];
+      if (feedback) extra.push({ icon: '💬', label: 'Feedback', value: feedback.length > 200 ? feedback.slice(0, 200) + '…' : feedback });
+      return formatBoundInstruction({
+        title: `Revise chapter ${chapterNumber}`,
+        bound,
+        extraBullets: extra,
+        verbose,
+      });
+    }
   );
 
   tool(
@@ -790,10 +934,14 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       projectPath: z.string().min(1),
       start: z.number().int().positive().optional(),
       end: z.number().int().positive().optional(),
+      verbose: z.boolean().default(false),
     },
-    async ({ projectPath, start, end }) => {
+    async ({ projectPath, start, end, verbose }) => {
       const range = start && end ? { start, end } : undefined;
-      return textResult(await boundInstruction(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'cross_chapter_review', range })));
+      const bound = await boundInstruction(await requestSideTrack({ projectPath: checkedProjectPath(projectPath), step: 'cross_chapter_review', range })) as Record<string, unknown> & { currentStep: string; expectedFormat: string };
+      const extra: ToolResultBullet[] = [];
+      if (range) extra.push({ icon: '📏', label: 'Range', value: `${range.start}-${range.end}` });
+      return formatBoundInstruction({ title: 'Cross-chapter review', bound, extraBullets: extra, verbose });
     }
   );
 
@@ -806,9 +954,23 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
       projectPath: z.string().min(1),
       content: z.string().min(1),
       reason: z.string().optional(),
+      verbose: z.boolean().default(false),
     },
-    async ({ projectPath, content, reason }) =>
-      textResult(await amendStoryBible({ projectPath: checkedProjectPath(projectPath), content, reason }))
+    async ({ projectPath, content, reason, verbose }) => {
+      const result = await amendStoryBible({ projectPath: checkedProjectPath(projectPath), content, reason });
+      const bullets: ToolResultBullet[] = [
+        { icon: '📚', label: 'Bible version', value: String(result.bibleVersion) },
+        { icon: '💾', label: 'Saved', value: `\`${result.savedPath}\`` },
+      ];
+      if (result.archivedPath) bullets.push({ icon: '🗄️', label: 'Archived prior', value: `\`${result.archivedPath}\`` });
+      if (reason) bullets.push({ icon: '💬', label: 'Reason', value: reason });
+      return formatToolResult({
+        title: `Story bible amended (v${result.bibleVersion})`,
+        bullets,
+        verbose,
+        rawForVerbose: result,
+      });
+    }
   );
 
   tool(
@@ -869,6 +1031,53 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     },
     async ({ projectPath, chapterNumber }) =>
       textResult(await deleteChapter({ projectPath: checkedProjectPath(projectPath), chapterNumber }))
+  );
+
+  tool(
+    'continue_novel_project',
+    'Resume a project that paused at `complete` because its per-run chapter budget ran out. Rewinds the workflow to the next pending chapter (or architecture_extension if the planning batch is exhausted), resets the run start, and applies a new chaptersPerRun budget (default 1). If the book is genuinely finished (currentChapter exceeds plannedTotalChapters), returns alreadyAtEnd=true without changing state.',
+    {
+      projectPath: z.string().min(1),
+      chaptersPerRun: z.number().int().positive().default(1).describe('How many additional chapters to generate before pausing again. Default 1.'),
+      verbose: z.boolean().default(false),
+    },
+    async ({ projectPath, chaptersPerRun, verbose }) => {
+      const checked = checkedProjectPath(projectPath);
+      const result = await continueProject({ projectPath: checked, chaptersPerRun });
+      if (result.alreadyAtEnd) {
+        return formatToolResult({
+          status: 'info',
+          title: 'Project already at end',
+          bullets: [
+            { icon: '📁', label: 'Path', value: `\`${checked}\`` },
+            { icon: '📖', label: 'Chapter', value: String(result.currentChapter) },
+            { icon: '⏭', label: 'Current step', value: `\`${result.currentStep}\`` },
+          ],
+          verbose,
+          rawForVerbose: result,
+        });
+      }
+      const next = await boundInstruction(await getNextStep(checked)) as Record<string, unknown> & {
+        currentStep: string;
+        expectedFormat: string;
+      };
+      const nextInstruction = (next.instruction as string | undefined) ?? (next.instructionPreview as string | undefined);
+      return formatToolResult({
+        title: 'Project resumed',
+        bullets: [
+          { icon: '📁', label: 'Path', value: `\`${checked}\`` },
+          { icon: '📖', label: 'Chapter', value: String(result.currentChapter) },
+          { icon: '⏸', label: 'Per-run budget', value: `${result.chaptersPerRun} chapter(s)` },
+          { icon: '⏭', label: 'Next step', value: `\`${next.currentStep}\`` },
+          { icon: '📝', label: 'Expected', value: next.expectedFormat },
+        ],
+        sections: [
+          { heading: 'Instruction', body: nextInstruction ?? '(see fullContextPath in raw)' },
+        ],
+        verbose,
+        rawForVerbose: { state: result, next },
+      });
+    }
   );
 
   tool(
@@ -956,18 +1165,37 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     'Start a brand new novel project under the configured workspace.',
     {
       prompt: z.string().describe('User idea / premise / genre, in any language.'),
-      chapters: z.string().optional().describe('Planning batch size as a string. Defaults to 5.'),
+      chapters: z.string().optional().describe('First-batch architecture size as a string. Defaults to 5. NOT the number of chapters to write this run — see chaptersPerRun.'),
       length: z.enum(['short', 'medium', 'long']).optional().describe('short=12 chapters, medium=100 chapters, long=open-ended. Ask the user if omitted.'),
       totalChapters: z.string().optional().describe('Explicit whole-book target chapter count. Overrides length when supplied.'),
+      chaptersPerRun: z.string().optional().describe('How many chapters to write before pausing at complete. Default 1. Only override when the user explicitly says e.g. "write 5 chapters at once".'),
     },
-    ({ prompt, chapters, length, totalChapters }) => ({
+    ({ prompt, chapters, length, totalChapters, chaptersPerRun }) => ({
       messages: [{
         role: 'user' as const,
         content: {
           type: 'text' as const,
           text: totalChapters || length
-            ? `Use the novelforge MCP server. Call start_novel_project with prompt="${prompt}", targetChapters=${chapters ?? '5'}${totalChapters ? `, plannedTotalChapters=${totalChapters}` : `, lengthPreset="${length}"`}, then enter the autonomous loop: read the current instruction/context, generate the requested content, write long artifacts to a project-local file, call submit_step_result with contentPath for long chapter/review/memory/architecture payloads, then call get_next_step for the next full instruction/context unless currentStep is "complete". Show me the projectPath after start_novel_project returns.`
-            : `Before calling start_novel_project, ask me to choose novel length: short (~12 chapters), medium (~100 chapters), or long/open-ended. After I choose, call start_novel_project with prompt="${prompt}", targetChapters=${chapters ?? '5'}, and the matching lengthPreset. Do not silently default an unspecified novel to 12 chapters.`,
+            ? `Use the novelforge MCP server. Call start_novel_project with prompt="${prompt}", targetChapters=${chapters ?? '5'}, chaptersPerRun=${chaptersPerRun ?? '1'}${totalChapters ? `, plannedTotalChapters=${totalChapters}` : `, lengthPreset="${length}"`}. Per-run default is 1 chapter — DO NOT raise chaptersPerRun unless the user explicitly asked for multiple chapters in one run (e.g. "一次写 5 章"). Then enter the autonomous loop: read the current instruction/context, generate the requested content, write long artifacts to a project-local file, call submit_step_result with contentPath for long chapter/review/memory/architecture payloads, then call get_next_step for the next full instruction/context. STOP the loop when currentStep is "complete" — tell the user the run paused after the budgeted chapter(s) and they can ask to continue (which will call continue_novel_project). Show me the projectPath after start_novel_project returns.`
+            : `Before calling start_novel_project, ask me to choose novel length: short (~12 chapters), medium (~100 chapters), or long/open-ended. After I choose, call start_novel_project with prompt="${prompt}", targetChapters=${chapters ?? '5'}, chaptersPerRun=${chaptersPerRun ?? '1'}, and the matching lengthPreset. Per-run default is 1 chapter — DO NOT raise chaptersPerRun unless I explicitly asked for multiple chapters in one run. Do not silently default an unspecified novel to 12 chapters.`,
+        },
+      }],
+    })
+  );
+
+  server.prompt(
+    'nf-continue',
+    'Resume a paused novelforge project for another batch of chapters.',
+    {
+      projectPath: z.string().describe('Absolute path to the project.'),
+      chapters: z.string().optional().describe('How many chapters to write this run. Defaults to 1.'),
+    },
+    ({ projectPath, chapters }) => ({
+      messages: [{
+        role: 'user' as const,
+        content: {
+          type: 'text' as const,
+          text: `Use the novelforge MCP server. Call continue_novel_project with projectPath="${projectPath}", chaptersPerRun=${chapters ?? '1'}. Then enter the autonomous loop: read each get_next_step instruction, generate the requested content (use contentPath for long artifacts), call submit_step_result, repeat. STOP the loop when currentStep is "complete" — the per-run budget has been spent; tell me the run paused and I can ask to continue again.`,
         },
       }],
     })

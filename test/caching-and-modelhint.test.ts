@@ -94,7 +94,7 @@ test('chapter step is "premium" and chapter prompt splits into cacheable rules +
 test('rules segment is stable across chapters; chapter_meta differs by chapter number', async () => {
   const root = await mkdtemp(join(tmpdir(), 'nf-cache-'));
   try {
-    const created = await createProject({ workspaceRoot: root, prompt: '修真短篇', outputDir: 'novels', targetChapters: 2 });
+    const created = await createProject({ workspaceRoot: root, prompt: '修真短篇', outputDir: 'novels', targetChapters: 2, chaptersPerRun: 99 });
     const meta = await submitStepResult({
       projectPath: created.state.projectPath,
       step: 'novel_metadata',

@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { cp, readdir, rm, unlink, writeFile } from 'node:fs/promises';
+import { cp, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { AgentState, WorkflowStep } from './types.js';
 import { loadState, saveState } from './projectStore.js';
@@ -292,3 +292,77 @@ export function assertProjectPath(workspaceRoot: string, projectPath: string): v
 
 // keep tsc happy if no other refs
 void writeFile;
+
+// =============================================================================
+// continue_novel_project
+// =============================================================================
+
+export interface ContinueProjectInput {
+  projectPath: string;
+  chaptersPerRun?: number;
+}
+
+export interface ContinueProjectResult {
+  currentStep: WorkflowStep;
+  currentChapter: number;
+  chaptersPerRun: number;
+  runStartChapter: number;
+  alreadyAtEnd: boolean;
+}
+
+async function maxPlannedChapterFromFile(projectPath: string): Promise<number> {
+  try {
+    const raw = await readFile(join(projectPath, 'architecture/chapters.json'), 'utf8');
+    const chapters = JSON.parse(raw) as Array<{ chapterNumber?: number }>;
+    return chapters.reduce((max, chapter) => {
+      const value = Number(chapter.chapterNumber);
+      return Number.isFinite(value) && value > max ? value : max;
+    }, 0);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Resume a project whose previous run paused at `complete` because the
+ * per-run chapter budget was exhausted. Recomputes the proper next step
+ * (chapter / architecture_extension / continuity_review) from the current
+ * chapter number and architecture plan, and resets the run budget.
+ *
+ * If the project is genuinely finished (currentChapter > plannedTotalChapters),
+ * leaves the state untouched and returns alreadyAtEnd=true.
+ */
+export async function continueProject(input: ContinueProjectInput): Promise<ContinueProjectResult> {
+  const state = await loadState(input.projectPath);
+  const plannedTotalChapters = state.plannedTotalChapters ?? state.targetChapters;
+  if (state.currentChapter > plannedTotalChapters) {
+    return {
+      currentStep: state.currentStep,
+      currentChapter: state.currentChapter,
+      chaptersPerRun: state.chaptersPerRun ?? 1,
+      runStartChapter: state.runStartChapter ?? state.currentChapter,
+      alreadyAtEnd: true,
+    };
+  }
+
+  const requestedBudget = Math.max(1, Math.floor(Number(input.chaptersPerRun ?? 1)));
+  const plannedMax = await maxPlannedChapterFromFile(state.projectPath);
+  const nextStep: WorkflowStep =
+    state.currentChapter > plannedMax ? 'architecture_extension' : 'chapter';
+
+  const next: AgentState = {
+    ...state,
+    currentStep: nextStep,
+    chaptersPerRun: requestedBudget,
+    runStartChapter: state.currentChapter,
+    pendingAction: undefined,
+  };
+  await saveState(next);
+  return {
+    currentStep: next.currentStep,
+    currentChapter: next.currentChapter,
+    chaptersPerRun: requestedBudget,
+    runStartChapter: state.currentChapter,
+    alreadyAtEnd: false,
+  };
+}
