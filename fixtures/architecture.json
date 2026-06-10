@@ -1,0 +1,43 @@
+{
+  "full": "陈青云觉醒昆吾剑灵后离开祖屋，踏上九霄之路。第一卷聚焦觉醒与离别，铺垫家族灭门疑案与'昆吾'二字之谜。最终走向是少年从被动承袭剑灵到主动追问真相。",
+  "volumes": [
+    {
+      "id": "v1",
+      "title": "玉佩初醒",
+      "summary": "第一卷：陈青云觉醒昆吾剑灵、被迫离开祖屋。卷尾留下'昆吾'之谜与祖屋下方未明古剑的伏笔。",
+      "order": 1
+    }
+  ],
+  "chapters": [
+    {
+      "chapterNumber": 1,
+      "title": "玉佩觉醒",
+      "volumeId": "v1",
+      "summary": "陈青云在祖屋祭祖时，悬挂多年的家传玉佩首次发出温热与剑鸣，昆吾剑灵第一次对他开口。",
+      "requiredBeats": [
+        "玉佩在祭祖时亮起",
+        "昆吾剑灵第一次开口",
+        "陈青云感受到玉佩与自身呼吸同步"
+      ],
+      "targetWords": 1500,
+      "requireRecap": false,
+      "endHookFocus": "mystery",
+      "povCharacter": "陈青云"
+    },
+    {
+      "chapterNumber": 2,
+      "title": "初下山门",
+      "volumeId": "v1",
+      "summary": "陈青云带着昆吾剑灵下山，路上发现追兵迹象，被迫加速远离祖屋。",
+      "requiredBeats": [
+        "陈青云告别祖屋",
+        "途中发现追兵线索",
+        "昆吾首次主动指引方向"
+      ],
+      "targetWords": 1500,
+      "requireRecap": true,
+      "endHookFocus": "cliffhanger",
+      "povCharacter": "陈青云"
+    }
+  ]
+}

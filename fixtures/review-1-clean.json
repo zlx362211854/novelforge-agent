@@ -1,0 +1,15 @@
+{
+  "chapterNumber": 1,
+  "status": "clean",
+  "acceptance": {
+    "requiredBeats": { "status": "pass", "evidence": "玉佩亮起、昆吾首次开口、与陈青云呼吸同步皆已落地", "missingBeats": [] },
+    "narrativeProgress": { "status": "pass", "evidence": "本章完成认主，推进主线" },
+    "characterProgress": { "status": "pass", "evidence": "陈青云从普通少年转入剑灵契约者" },
+    "foreshadowProgress": { "status": "pass", "evidence": "三条伏笔(剑灵真实身份/玉佩来历/陈家灭门)被埋设" },
+    "storyBibleConsistency": { "status": "pass", "evidence": "未违反故事圣经任何条目" },
+    "proseRhythm": { "status": "pass", "evidence": "短句作为强调使用，段落完整成体" },
+    "endingHook": { "status": "pass", "evidence": "章末以'昆吾'二字留下身份谜" },
+    "repetition": { "status": "pass", "evidence": "无重复桥段" }
+  },
+  "issues": []
+}

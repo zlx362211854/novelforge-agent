@@ -3,4 +3,3 @@ dist/
 tmp-*/
 novels/
 .DS_Store
-fixtures/

@@ -1,0 +1,32 @@
+{
+  "summary": "陈青云告别祖屋下山，途中发现四名修士追兵痕迹，被昆吾指引走小径避开。最后回望祖屋一次，昆吾点出追兵目标可能并非陈青云本人。",
+  "keyEvents": [
+    "陈青云关闭并告别祖屋",
+    "途中察觉四名修士接近",
+    "昆吾首次主动指引方向",
+    "卷末暗示追兵真正目标可能另有其人"
+  ],
+  "entities": [
+    { "name": "陈青云", "type": "person", "state": "已离开祖屋，进入山林小径" },
+    { "name": "昆吾剑灵", "type": "item", "state": "首次主动指挥方向" },
+    { "name": "四名追兵", "type": "person", "state": "尚未现身，正逼近山弯" }
+  ],
+  "facts": [
+    { "subject": "陈青云", "predicate": "离开", "object": "祖屋" },
+    { "subject": "昆吾", "predicate": "提醒", "object": "陈青云走左侧小径" }
+  ],
+  "stateChanges": [
+    { "entity": "陈青云", "before": "在祖屋", "after": "在山林" },
+    { "entity": "昆吾剑灵", "before": "被动响应", "after": "主动决策" }
+  ],
+  "openThreads": [
+    "追兵真正目标是谁",
+    "昆吾如何识别修士步伐"
+  ],
+  "wordCount": 520,
+  "threadActions": [
+    { "kind": "build", "description": "陈家灭门真相" },
+    { "kind": "plant", "description": "追兵真正目标是谁" },
+    { "kind": "plant", "description": "昆吾为何能识别修士步伐" }
+  ]
+}

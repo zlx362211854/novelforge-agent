@@ -238,6 +238,18 @@ export interface AgentState {
   completedSteps: WorkflowStep[];
   files: Record<string, string>;
   pendingAction?: PendingAction;
+  /**
+   * Per-chapter revision attempt counter. Incremented every time the
+   * chapter_review → chapter_revision gate cycles. Once a chapter's count
+   * reaches MAX_REVISION_ROUNDS the workflow auto-advances to memory_card
+   * and the chapter number is appended to forceAdvanced for the user's record.
+   */
+  revisionCounts?: Record<number, number>;
+  /**
+   * Chapters that exited the review→revise loop because they hit the
+   * revision cap with unresolved issues. Surfaced in get_project_status.
+   */
+  forceAdvanced?: number[];
   createdAt: string;
   updatedAt: string;
 }

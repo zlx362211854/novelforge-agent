@@ -130,9 +130,16 @@ ${strictJsonOutputRules()}`,
 }
 
 function buildArchitecturePrompt(input: PromptBuildInput): BuiltPrompt {
-const wholeBookTarget = input.state.lengthPreset === 'long'
+const isOpenEnded = input.state.lengthPreset === 'long';
+const wholeBookTarget = isOpenEnded
   ? 'open-ended long-form serial with no fixed final chapter; define long-range direction and the first planning batch only'
   : `about ${input.state.plannedTotalChapters ?? input.state.targetChapters} chapters`;
+const fullFieldDescription = isOpenEnded
+  ? 'Open-ended serial macro direction, current saga/volume objective, central conflict, and long-range mysteries; do not define a fixed finale or every future volume'
+  : 'Complete full-book main line, phase progression, central conflict, theme, and ending direction';
+const volumeRule = isOpenEnded
+  ? '- volumes should include only the current saga/current volume and any necessary near-term opening volume; do not plan every future volume.'
+  : '- volumePacing must provide one pacing board for every volume.';
 return {
       purpose: 'architecture',
       expectedFormat: 'JSON matching ArchitecturePayloadSchema',
@@ -143,14 +150,15 @@ ${input.state.initialPrompt}
 
 ## Goals
 - Whole-book target: ${wholeBookTarget}; generate only the first ${input.state.targetChapters} chapter architectures in this first batch.
-- The full-book architecture should define the long-term main line and ending direction.
-- Volume architecture should define phase conflict, climax, and volume-end hooks.
+- ${isOpenEnded ? 'Macro architecture should define long-range direction, genre promise, the current phase objective, and sustainable conflict, not a fixed final ending.' : 'The full-book architecture should define the long-term main line and ending direction.'}
+- Volume architecture should define current/near-term phase conflict, climax, and volume-end hooks.
 - Chapter architecture must cover only what should happen in that chapter and must not reveal later concrete events early.
+- Do not plan every chapter or every volume up front; when writing reaches the boundary, the workflow will request architecture_extension.
 
 ${input.context ? `## Existing Context\n${input.context}\n` : ''}## Output Requirements
 Output valid JSON only, in this shape:
 {
-  "full": "Complete full-book main line, phase progression, central conflict, theme, and ending direction",
+  "full": "${fullFieldDescription}",
   "volumes": [
     {
       "id": "v1",
@@ -187,7 +195,7 @@ Rules:
 - chapters do not need to cover the whole book; when writing reaches the boundary, the workflow will request architecture_extension.
 - chapterNumber must start at 1 and increase contiguously.
 - volumeId must reference an id from volumes.
-- volumePacing must provide one pacing board for every volume.
+${volumeRule}
 - requiredBeats must include at least one concrete, actionable beat.
 ${strictJsonOutputRules()}`,
     };
@@ -197,9 +205,16 @@ function buildArchitectureExtensionPrompt(input: PromptBuildInput): BuiltPrompt 
   const start = input.state.currentChapter;
   const total = input.state.plannedTotalChapters ?? input.state.targetChapters;
   const end = Math.min(total, start + input.state.targetChapters - 1);
-  const totalLabel = input.state.lengthPreset === 'long'
+  const isOpenEnded = input.state.lengthPreset === 'long';
+  const totalLabel = isOpenEnded
     ? 'is an open-ended long-form serial with no fixed final chapter'
     : `ends at chapter ${total}`;
+  const maxChapterRule = isOpenEnded
+    ? '- chapterNumber must increase contiguously.'
+    : `- chapterNumber must increase contiguously and must not exceed ${total}.`;
+  const lengthRule = isOpenEnded
+    ? `- chapters.length should be ${end - start + 1}; this is the next planning batch, not the whole book plan.`
+    : `- chapters.length should be ${end - start + 1} unless the book has reached its ending.`;
   return {
     purpose: 'architecture_extension',
     expectedFormat: 'JSON matching ArchitectureExtensionPayloadSchema',
@@ -216,6 +231,7 @@ function buildArchitectureExtensionPrompt(input: PromptBuildInput): BuiltPrompt 
 - If the next chapters enter a new volume, add volumes and volumePacing. If they remain in an existing volume, you may provide an updated pacing board for that volume.
 - If the full-book direction needs adjustment because of written material, include fullUpdate. fullUpdate must be a complete replacement for architecture/full.md, not a change note.
 - Chapter architecture must cover only what should happen in that chapter and must not reveal later concrete events early.
+- Do not append every future chapter or every future volume; plan only this batch and the necessary near-term volume/pacing context.
 - Long-form pacing guardrail: for non-final chapters, do not pack major truth reveals, core foreshadow payoffs, large power jumps, major antagonist confrontations, and new-region launches into the same chapter. Unless it is a volume climax, each chapter should carry at most 1-2 irreversible major turns.
 - If a chapter feels like a season finale, split it across chapters: crisis/discovery, then cost/choice, then payoff/transition.
 
@@ -256,8 +272,8 @@ Output valid JSON only, in this shape:
 
 Rules:
 - chapters[0].chapterNumber must equal ${start}.
-- chapterNumber must increase contiguously and must not exceed ${total}.
-- chapters.length should be ${end - start + 1} unless the book has reached its ending.
+${maxChapterRule}
+${lengthRule}
 - requiredBeats must include at least one concrete, actionable beat.
 - volumeId must reference an existing volume id or a volume id supplied in this response.
 - A non-final chapter that combines major truth, core payoff, consecutive power jumps, major battle, new region, or final-antagonist escalation may be rejected; split that pacing proactively.
@@ -275,8 +291,14 @@ function buildChapterPrompt(input: PromptBuildInput): BuiltPrompt {
 
 ## Priority Order
 1. Strictly follow the current chapter architecture, user additions, story bible hard constraints, style guide, and previous-chapter continuity.
-2. Use relevant memory, prior text evidence, and active foreshadow threads.
+2. Use the Character State Table, Volume Pacing Board, active foreshadow threads, relevant memory, and prior text evidence to stay consistent.
 3. Treat full-book and volume plans as distant planning context only. Do not write concrete future events early.
+
+## How To Use The Key Context Sections
+- **Character State Table**: The context appends \`## Character State Table\` with each character's current stage / location / injuries / goal / belief / secrets / relationships / emotional state. **This chapter must NOT violate any field** — e.g. if the table says "Chen Qingyun: Qi Refinement stage 3", this chapter cannot depict him at Core Formation. Any change must happen on-page and be recorded by the next memory_card.
+- **Volume Pacing Board**: The context appends \`## Volume Pacing Board\` with the current volume's promise / midpoint / climax / payoffs / lingeringMysteries. This chapter must fit its beat position: do not surface climax content during rising_action; do not collect volume payoffs before the volume close.
+- **Active Foreshadow Threads**: May be advanced / paid off / planted, but never silently dropped.
+- **Retrieved Relevant Snippets**: Reference only; do not rewrite them.
 
 ## Length Target
 - Default target: ~2500 words (±20%). If the chapter architecture specifies targetWords, follow it.

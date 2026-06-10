@@ -94,6 +94,8 @@ export interface ProjectStatus extends ProjectSummary {
     range?: { start: number; end: number };
     issueCount?: number;
   };
+  revisionCounts: Record<number, number>;
+  forceAdvanced: number[];
   done: boolean;
 }
 
@@ -171,6 +173,8 @@ export async function getProjectStatus(projectPath: string): Promise<ProjectStat
     files: state.files,
     openThreads,
     latestReview,
+    revisionCounts: state.revisionCounts ?? {},
+    forceAdvanced: state.forceAdvanced ?? [],
     done: state.currentStep === 'complete',
   };
 }

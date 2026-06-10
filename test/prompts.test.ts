@@ -102,7 +102,24 @@ test('long preset prompts avoid fixed final-chapter framing', () => {
   const result = buildPromptForStep({ state });
 
   assert.match(result.prompt, /开放式长篇/);
+  assert.match(result.prompt, /不要一次性规划所有章节或所有卷/);
   assert.doesNotMatch(result.prompt, /1000000/);
+  assert.doesNotMatch(result.prompt, /结局方向/);
+});
+
+test('long preset architecture extension remains batch-based', () => {
+  const state = {
+    ...baseState('architecture_extension'),
+    lengthPreset: 'long' as const,
+    plannedTotalChapters: 1_000_000,
+  };
+  const result = buildPromptForStep({ state });
+
+  assert.match(result.prompt, /开放式长篇/);
+  assert.match(result.prompt, /只规划本批章节/);
+  assert.match(result.prompt, /不是全书规划/);
+  assert.doesNotMatch(result.prompt, /1000000/);
+  assert.doesNotMatch(result.prompt, /全本结尾/);
 });
 
 test('chapter review prompt includes mandatory acceptance gate', () => {

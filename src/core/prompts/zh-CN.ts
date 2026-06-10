@@ -130,9 +130,16 @@ ${strictJsonOutputRules()}`,
 }
 
 function buildArchitecturePrompt(input: PromptBuildInput): BuiltPrompt {
-const wholeBookTarget = input.state.lengthPreset === 'long'
+const isOpenEnded = input.state.lengthPreset === 'long';
+const wholeBookTarget = isOpenEnded
   ? '开放式长篇，不设固定终章；当前只做长期方向和首批阶段规划'
   : `约 ${input.state.plannedTotalChapters ?? input.state.targetChapters} 章`;
+const fullFieldDescription = isOpenEnded
+  ? '开放式长篇的宏观方向、当前大篇/当前卷目标、核心冲突和长期悬念；不要写固定终局或全书所有卷'
+  : '完整全书主线、阶段推进、核心冲突、主题和结局方向';
+const volumeRule = isOpenEnded
+  ? '- volumes 只输出当前大篇/当前卷以及必要的近期开篇卷；不要一次性规划全书所有卷。'
+  : '- volumePacing 必须为每个 volume 提供节奏板。';
 return {
     purpose: 'architecture',
     expectedFormat: 'JSON matching ArchitecturePayloadSchema',
@@ -143,14 +150,15 @@ ${input.state.initialPrompt}
 
 ## 目标
 - 全本目标：${wholeBookTarget}；本次只生成首批 ${input.state.targetChapters} 个章架构。
-- 全本架构负责长期主线和结局方向。
-- 卷架构负责阶段冲突、高潮和卷尾钩子。
+- ${isOpenEnded ? '宏观架构只负责长期方向、题材承诺、当前阶段目标和可持续冲突，不要固定最终结局。' : '全本架构负责长期主线和结局方向。'}
+- 卷架构负责当前/近期阶段冲突、高潮和卷尾钩子。
 - 章架构必须只覆盖本章应发生的内容，不要提前泄露后续具体事件。
+- 不要一次性规划所有章节或所有卷；后续写到边界时会动态进入 architecture_extension。
 
 ${input.context ? `## 已有上下文\n${input.context}\n` : ''}## 输出要求
 请只输出合法 JSON，格式如下：
 {
-  "full": "完整全书主线、阶段推进、核心冲突、主题和结局方向",
+  "full": "${fullFieldDescription}",
   "volumes": [
     {
       "id": "v1",
@@ -187,7 +195,7 @@ ${input.context ? `## 已有上下文\n${input.context}\n` : ''}## 输出要求
 - chapters 不需要一次覆盖全本；后续写到边界时会进入 architecture_extension 续规划。
 - chapterNumber 从 1 开始连续递增。
 - volumeId 必须引用 volumes 中存在的 id。
-- volumePacing 必须为每个 volume 提供节奏板。
+${volumeRule}
 - requiredBeats 至少 1 条，且必须具体可执行。
 ${strictJsonOutputRules()}`,
   };
@@ -197,9 +205,16 @@ function buildArchitectureExtensionPrompt(input: PromptBuildInput): BuiltPrompt 
   const start = input.state.currentChapter;
   const total = input.state.plannedTotalChapters ?? input.state.targetChapters;
   const end = Math.min(total, start + input.state.targetChapters - 1);
-  const totalLabel = input.state.lengthPreset === 'long'
+  const isOpenEnded = input.state.lengthPreset === 'long';
+  const totalLabel = isOpenEnded
     ? '开放式长篇，不设固定终章'
     : `到第 ${total} 章结束`;
+  const maxChapterRule = isOpenEnded
+    ? '- chapterNumber 必须连续递增。'
+    : `- chapterNumber 必须连续递增，且不能超过 ${total}。`;
+  const lengthRule = isOpenEnded
+    ? `- chapters.length 建议为 ${end - start + 1}；这是下一批规划，不是全书规划。`
+    : `- chapters.length 建议为 ${end - start + 1}，除非已经到全本结尾。`;
   return {
     purpose: 'architecture_extension',
     expectedFormat: 'JSON matching ArchitectureExtensionPayloadSchema',
@@ -216,6 +231,7 @@ function buildArchitectureExtensionPrompt(input: PromptBuildInput): BuiltPrompt 
 - 如果后续章节进入新卷，可以新增 volumes 和 volumePacing；如果仍在旧卷，可以补充/更新该卷节奏板。
 - 如果全本方向因已写内容需要微调，可以输出 fullUpdate；fullUpdate 必须是可覆盖 architecture/full.md 的完整更新版，而不是变更说明。
 - 章架构必须只覆盖本章应发生的内容，不要提前泄露更后面的具体事件。
+- 不要一次性补出后续所有章节或所有卷；只规划本批章节和必要的近期卷/节奏板。
 - 长篇节奏保护：非全本终章不要把“大真相揭示、核心伏笔回收、主角大幅升级、强反派正面对决、新地图开启”集中塞进同一章；除非是卷高潮，否则每章最多承载 1-2 个不可逆大转折。
 - 如果一章看起来像季终集，请拆分到多章：先危机/发现，再代价/选择，再回收/转场。
 
@@ -256,8 +272,8 @@ ${input.context ? `## 已有上下文\n${input.context}\n` : ''}## 输出要求
 
 要求：
 - chapters[0].chapterNumber 必须等于 ${start}。
-- chapterNumber 必须连续递增，且不能超过 ${total}。
-- chapters.length 建议为 ${end - start + 1}，除非已经到全本结尾。
+${maxChapterRule}
+${lengthRule}
 - requiredBeats 至少 1 条，且必须具体可执行。
 - volumeId 必须引用已有或本次新增 volumes 中存在的 id。
 - 非终章如果同时包含重大真相、核心回收、连续升级、强战斗、新地图或最终反派升级，提交会被拒绝；请主动拆分节奏。
@@ -275,8 +291,14 @@ function buildChapterPrompt(input: PromptBuildInput): BuiltPrompt {
 
 ## 执行优先级
 1. 先严格遵守"本章架构、用户补充要求、故事圣经硬约束、风格圣经、上一章承接"。
-2. 再参考"历史相关记忆、历史原文证据、活跃伏笔"保证一致性。
+2. 再参考"角色状态表、卷级节奏板、活跃伏笔、历史相关记忆、历史原文证据"保证一致性。
 3. 最后才参考"全本/本卷远场规划"，且不得提前写出尚未发生的情节。
+
+## 如何使用上下文中的关键数据段
+- **Character State Table（角色状态表）**：上下文末尾会附 \`## Character State Table\`，里面是各角色当前的境界/位置/伤势/目标/信念/秘密/关系/情绪。**严禁本章违反任何字段**——例如表里写"陈青云：炼气三层"，本章就不许出现金丹境的描写。任何变化必须发生在本章正文里且后续 memory_card 中会记录。
+- **Volume Pacing Board（卷级节奏板）**：上下文里会附 \`## Volume Pacing Board\`，里面是当前卷的承诺/中点/高潮/payoffs/lingeringMysteries。本章应符合所在 beat 位置：rising_action 段不要提前写 climax 内容，midpoint 才能写 midpoint 反转，volume close 才能回收本卷 payoffs。
+- **Active Foreshadow Threads（活跃伏笔）**：本章可推进/回收/新埋，但不得"无声删除"。
+- **Retrieved Relevant Snippets**：仅作为历史原文参考，不要重写其内容。
 
 ## 字数目标
 - 默认目标 3000 字（±20%）。如果本章架构里指定了 targetWords，按那个目标。

@@ -235,6 +235,49 @@ export async function redoStep(input: RedoStepInput): Promise<RedoStepResult> {
 }
 
 // =============================================================================
+// force_advance
+// =============================================================================
+
+export interface ForceAdvanceInput {
+  projectPath: string;
+  chapterNumber?: number;
+  reason?: string;
+}
+
+export interface ForceAdvanceResult {
+  currentStep: WorkflowStep;
+  currentChapter: number;
+  forceAdvanced: number[];
+}
+
+/**
+ * Manually exit the chapter_review / chapter_revision gate for a stuck chapter.
+ * Moves the workflow to memory_card, clears any pending action, drops the
+ * revision counter, and records the chapter as force-advanced for later audit.
+ */
+export async function forceAdvanceChapter(input: ForceAdvanceInput): Promise<ForceAdvanceResult> {
+  const state = await loadState(input.projectPath);
+  const target = input.chapterNumber ?? state.pendingAction?.chapterNumber ?? state.currentChapter;
+  const cleanedCounts = { ...(state.revisionCounts ?? {}) };
+  delete cleanedCounts[target];
+  const nextForceAdvanced = Array.from(new Set([...(state.forceAdvanced ?? []), target]));
+  const next: AgentState = {
+    ...state,
+    currentStep: 'memory_card',
+    currentChapter: target,
+    pendingAction: undefined,
+    revisionCounts: cleanedCounts,
+    forceAdvanced: nextForceAdvanced,
+  };
+  await saveState(next);
+  return {
+    currentStep: next.currentStep,
+    currentChapter: next.currentChapter,
+    forceAdvanced: nextForceAdvanced,
+  };
+}
+
+// =============================================================================
 // guards
 // =============================================================================
 

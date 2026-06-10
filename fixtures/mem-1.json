@@ -1,0 +1,32 @@
+{
+  "summary": "陈青云祭祖时玉佩首次发烫，昆吾剑灵首次出声并完成认主，只留下'昆吾'二字。",
+  "keyEvents": [
+    "陈青云祭祖第三年",
+    "玉佩首次发烫与自身呼吸同步",
+    "昆吾剑灵首次开口并自报名讳"
+  ],
+  "entities": [
+    { "name": "陈青云", "type": "person", "state": "刚完成认主，仍在祖屋" },
+    { "name": "昆吾剑灵", "type": "item", "state": "认主成功，记忆只剩'昆吾'二字" },
+    { "name": "祖屋", "type": "location", "state": "陈青云三年来一直守护，仍在使用" }
+  ],
+  "facts": [
+    { "subject": "陈青云", "predicate": "持有", "object": "昆吾玉佩" },
+    { "subject": "玉佩", "predicate": "传自", "object": "陈父" }
+  ],
+  "stateChanges": [
+    { "entity": "陈青云", "before": "普通少年", "after": "昆吾剑灵契约者" },
+    { "entity": "昆吾剑灵", "before": "沉睡于玉佩", "after": "苏醒并认主" }
+  ],
+  "openThreads": [
+    "昆吾剑灵的真实身份与剑身下落",
+    "陈父为何把玉佩塞给陈青云",
+    "陈家灭门真相"
+  ],
+  "wordCount": 480,
+  "threadActions": [
+    { "kind": "plant", "description": "昆吾剑灵的真实身份与剑身下落" },
+    { "kind": "plant", "description": "陈父灭门前为何把玉佩塞给陈青云" },
+    { "kind": "plant", "description": "陈家灭门真相" }
+  ]
+}

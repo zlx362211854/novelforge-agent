@@ -11,6 +11,7 @@ import {
   getProjectStatus,
   listProjects,
   loadThreads,
+  forceAdvanceChapter,
   redoStep,
   requestSideTrack,
   retrieve,
@@ -248,6 +249,18 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd()):
     return;
   }
 
+  if (command === 'force-advance') {
+    if (!projectPath) throw new Error('Missing projectPath');
+    const chapter = valueAfter(argv, '--chapter');
+    const reason = valueAfter(argv, '--reason');
+    console.log(JSON.stringify(await forceAdvanceChapter({
+      projectPath,
+      chapterNumber: chapter ? Number(chapter) : undefined,
+      reason,
+    }), null, 2));
+    return;
+  }
+
   if (command === 'redo') {
     if (!projectPath) throw new Error('Missing projectPath');
     const step = valueAfter(argv, '--step') as
@@ -263,7 +276,7 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd()):
     return;
   }
 
-  throw new Error('Usage: novelforge-agent install|start|list|status|next|submit|context|review|revise|cross-review|retrieve|amend-metadata|amend-bible|threads|update-thread|fork|delete-chapter|redo');
+  throw new Error('Usage: novelforge-agent install|start|list|status|next|submit|context|review|revise|cross-review|retrieve|amend-metadata|amend-bible|threads|update-thread|fork|delete-chapter|redo|force-advance');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

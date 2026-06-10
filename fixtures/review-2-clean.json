@@ -1,0 +1,15 @@
+{
+  "chapterNumber": 2,
+  "status": "clean",
+  "acceptance": {
+    "requiredBeats": { "status": "pass", "evidence": "告别祖屋、追兵痕迹、昆吾主动指引皆已落地", "missingBeats": [] },
+    "narrativeProgress": { "status": "pass", "evidence": "陈青云离开祖屋，主线推进" },
+    "characterProgress": { "status": "pass", "evidence": "昆吾从被动响应转为主动决策" },
+    "foreshadowProgress": { "status": "pass", "evidence": "追兵目标、昆吾识别能力两条新伏笔" },
+    "storyBibleConsistency": { "status": "pass", "evidence": "未违反故事圣经" },
+    "proseRhythm": { "status": "pass", "evidence": "节奏推进自然" },
+    "endingHook": { "status": "pass", "evidence": "章末以'那不是追你的人'反转留钩" },
+    "repetition": { "status": "pass", "evidence": "无重复桥段" }
+  },
+  "issues": []
+}

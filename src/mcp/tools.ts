@@ -22,6 +22,7 @@ import {
   loadState,
   loadThreads,
   readAgentEvents,
+  forceAdvanceChapter,
   redoStep,
   requestSideTrack,
   retrieve,
@@ -650,6 +651,18 @@ export function createNovelAgentServer(options: CreateNovelAgentServerOptions): 
     },
     async ({ projectPath, chapterNumber }) =>
       textResult(await deleteChapter({ projectPath: checkedProjectPath(projectPath), chapterNumber }))
+  );
+
+  tool(
+    'force_advance',
+    'Force-exit a stuck chapter_review/chapter_revision gate. Sets the workflow to memory_card for the given chapter (default: the chapter currently in the gate), clears the revision counter, and records the chapter in forceAdvanced for audit. Use when the host cannot satisfy the review acceptance gate after several rounds.',
+    {
+      projectPath: z.string().min(1),
+      chapterNumber: z.number().int().positive().optional(),
+      reason: z.string().optional(),
+    },
+    async ({ projectPath, chapterNumber, reason }) =>
+      textResult(await forceAdvanceChapter({ projectPath: checkedProjectPath(projectPath), chapterNumber, reason }))
   );
 
   tool(
