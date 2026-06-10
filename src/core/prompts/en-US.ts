@@ -329,10 +329,26 @@ ${isFirstChapter
 - Avoid cost-free power jumps, forced stupidity, mechanical twists, info-dumps, and empty lyricism.
 - Do not output summaries, bullet points, lectures, explanatory prefaces, or meta-text like "what I changed".
 
+## Forbidden AI Tics (every violation counts as a HIGH-severity review issue and triggers chapter_revision)
+- "**Not X, but (rather) Y**" / "It wasn't X, it was Y": at most **once** per chapter, and only when the contrast is real. Do not use it as a thinking-out-loud transition.
+- "**In that moment / At that instant / Right then / Just then**": at most **once** per chapter. Do not stamp every emotional peak with it.
+- **Sensory tricolon**: do not write "He saw A. He heard B. He smelled C." Pick one.
+- **Adjective tricolon**: do not write "cold, hard, eternal" — three comma-stacked adjectives is a tell.
+- **Epiphany-at-end-of-paragraph**: do not write "He finally understood." / "That was the answer." / "It all made sense." Let action or silence carry it.
+- **Explainer narration**: never reveal psychology immediately after the action ("He smiled, a smile that held…"). Let the action stand.
+- **Restate-summary-close**: do not write "X. The Y of X. The Z of Y. In the end, Z was W."
+- **Empty qualifiers**: do not stack "a kind of unspeakable…" / "an almost instinctive…" / "something carved into his bones".
+- **Simile pile-up**: do not have "as if" + "like" + "as though" in the same paragraph.
+- **Repeating the subject**: do not write "Chen Qingyun. Chen Qingyun walked over. Chen Qingyun said." Use pronouns or continuous action.
+- **Rhetorical-question lyric**: do not use "Wasn't it so? / Who could have imagined? / How could it not be?" as fake-deep filler.
+
 ${input.context ? `## Generation Context\n${input.context}\n` : ''}## Output Requirements
 - Output Markdown.
 - First line must be the chapter title as H1, for example: # Chapter Title
-- After the H1, begin the prose directly.`,
+- After the H1, begin the prose directly.
+
+## Self-check (before output)
+Scan the 11 Forbidden AI Tics above. If any one is over budget, **rewrite first, then output**. Do not admit in the output that you rewrote.`,
   };
 }
 
@@ -462,6 +478,25 @@ ${input.context ? `## Review Context\n${input.context}\n` : ''}## Review Focus
 - Whether it violates the Style Guide: narrative voice, sentence density, genre diction, dialogue rules, or prohibited patterns.
 - Whether it violates Style Guide.proseRhythm: excessive short-sentence density, consecutive one-sentence paragraphs, fake rhythm through line breaks, overly direct interior explanation, or repeated sentence patterns.
 - Whether it shows obvious AI-prose artifacts: repeated "not X but Y" constructions, too many "as if" phrases, explanatory summary sentences, modern jokes that break genre immersion, or dialogue overloaded with exposition.
+
+### Mandatory AI-Tic Audit (proseRhythm)
+When evaluating proseRhythm you **must** count the following 11 AI-prose tics. If **any one** is over budget, proseRhythm.status must be "fail", and one issue must be raised with category="style", severity="high", evidence quoting the offending passage.
+
+| # | Tic | Per-chapter cap |
+|---|-----|-----------------|
+| 1 | "Not X, but (rather) Y" / "It wasn't X, it was Y" | 1 |
+| 2 | "In that moment / at that instant / right then / just then" | 1 |
+| 3 | Sensory tricolon: "He saw A. He heard B. He smelled C." | 0 |
+| 4 | Adjective tricolon: "cold, hard, eternal" | 0 |
+| 5 | End-of-paragraph epiphany: "He finally understood." / "That was the answer." / "It all made sense." | 0 |
+| 6 | Explainer narration immediately after action ("He smiled, a smile that…") | 0 |
+| 7 | Restate-summary close: "X. The Y of X. The Z of Y. In the end, Z was W." | 0 |
+| 8 | Empty qualifiers: "a kind of unspeakable… / an almost instinctive… / carved into his bones" | 0 |
+| 9 | Simile pile-up: "as if" + "like" + "as though" in the same paragraph | 0 |
+| 10 | Subject repetition: "Chen Qingyun. Chen Qingyun walked over. Chen Qingyun said." | 0 |
+| 11 | Rhetorical-question lyric: "Wasn't it so? / How could it not? / Who could have imagined?" | 0 |
+
+The evidence field **must** list the counts, e.g. "AI-tic audit: #1=2 (over, cap 1), #5=1 (over, cap 0), others=0".
 - Whether the ending has a clear hook that matches the chapter architecture endHookFocus.
 - Whether it repeats prior chapter beats, conflict patterns, reveals, or dialogue functions.
 - Character voice, motivation, and state vs the story bible and prior memory.
