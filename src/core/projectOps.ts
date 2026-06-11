@@ -1,6 +1,9 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { cp, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { homedir, platform as osPlatform } from 'node:os';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep as defaultSep } from 'node:path';
+import * as pathPosix from 'node:path/posix';
+import * as pathWin32 from 'node:path/win32';
 import { AgentState, WorkflowStep } from './types.js';
 import { loadState, saveState } from './projectStore.js';
 import { indexChapter, removeChapterFromIndex, removeMemoryCardFromIndex } from './retrieval/index.js';
@@ -278,17 +281,182 @@ export async function forceAdvanceChapter(input: ForceAdvanceInput): Promise<For
 }
 
 // =============================================================================
-// guards
+// Path safety policy
+//
+// The threat model NovelForge actually faces is "user runs the MCP server on
+// their own machine, points it at their own host (Claude Code / Codex /
+// WorkBuddy / …), wants to write novels somewhere on their disk." The hosts
+// are user-trusted; the user is the one issuing tool calls.
+//
+// In that model the security cost of "must be inside NOVELFORGE_WORKSPACE" is
+// huge — every host that has its own session directory gets blocked. The
+// security benefit is small — the same user could just run `rm -rf` directly.
+//
+// So we flip the default:
+//   - DEFAULT (permissive): allow any path that isn't a known system path.
+//     System paths (POSIX /etc, /usr, /bin, /sbin, /var, /opt, /System,
+//     /Library, …; Windows %SystemRoot%, %ProgramFiles%, %ProgramData%) are
+//     always blocked unconditionally.
+//   - STRICT (opt-in via NOVELFORGE_STRICT_WORKSPACE=1): the legacy
+//     workspace-bound behavior, for multi-tenant servers / paranoid users.
+//     Requires NOVELFORGE_WORKSPACE to be set; rejects anything outside it.
 // =============================================================================
 
-export function assertProjectPath(workspaceRoot: string, projectPath: string): void {
-  const root = resolve(workspaceRoot);
-  const target = resolve(projectPath);
-  const rel = relative(root, target);
-  if (rel.startsWith('..') || isAbsolute(rel)) {
-    throw new Error(`Refusing to operate outside workspace: ${target}`);
+export interface PathSafetyPolicy {
+  /** Effective platform; defaults to current process platform. */
+  platform?: NodeJS.Platform;
+  /** Effective user home; defaults to os.homedir(). */
+  home?: string;
+  /** Workspace root if explicitly configured. */
+  workspaceRoot?: string;
+  /** Force strict mode; defaults to NOVELFORGE_STRICT_WORKSPACE=1. */
+  strict?: boolean;
+  /** Override system paths (for testing). */
+  systemPaths?: string[];
+  /** Override env (for testing). */
+  env?: NodeJS.ProcessEnv;
+}
+
+export interface PathSafetyResult {
+  ok: boolean;
+  reason?: string;
+}
+
+// Note: we intentionally DO NOT block /var, /tmp, /opt or /private/var.
+// macOS resolves os.tmpdir() to /var/folders/... (== /private/var/folders/...),
+// which is a legitimate user-owned location. Linux apps use /var/log,
+// /var/lib, /opt for legitimate user-controlled data. Blocking these would
+// reject hosts that already write their session data there.
+const POSIX_SYSTEM_PATHS = [
+  '/etc',
+  '/usr',
+  '/bin',
+  '/sbin',
+  '/boot',
+  '/dev',
+  '/proc',
+  '/sys',
+  '/root',
+  '/System',
+  '/Library',
+  '/Applications',
+  '/private/etc',
+  '/private/sbin',
+  '/private/usr',
+];
+
+function getWindowsSystemPaths(env: NodeJS.ProcessEnv): string[] {
+  const out: string[] = [];
+  const candidates = [
+    env.SystemRoot,
+    env.windir,
+    env.ProgramFiles,
+    env['ProgramFiles(x86)'],
+    env.ProgramW6432,
+    env.ProgramData,
+    env.PUBLIC,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.length > 0) out.push(c);
+  }
+  // Hard-coded fallbacks in case env vars aren't set.
+  out.push('C:\\Windows', 'C:\\Program Files', 'C:\\Program Files (x86)', 'C:\\ProgramData');
+  return Array.from(new Set(out));
+}
+
+function getSystemPaths(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string[] {
+  if (platform === 'win32') return getWindowsSystemPaths(env);
+  return POSIX_SYSTEM_PATHS.slice();
+}
+
+function resolvePlatform(p: string, platform: NodeJS.Platform): string {
+  // path.resolve uses the host platform's path semantics — but we want to be
+  // able to reason about Windows paths even when running on POSIX (and vice
+  // versa) so tests can verify Windows behavior on a Mac/Linux dev machine.
+  return platform === 'win32' ? pathWin32.resolve(p) : pathPosix.resolve(p);
+}
+
+function normalizeForCompare(p: string, platform: NodeJS.Platform): string {
+  // On Windows, path comparison is case-insensitive AND separator-insensitive.
+  if (platform === 'win32') {
+    return p.replace(/\\/g, '/').toLowerCase();
+  }
+  return p;
+}
+
+function pathStartsWith(child: string, parent: string, platform: NodeJS.Platform): boolean {
+  const c = normalizeForCompare(child, platform);
+  const p = normalizeForCompare(parent, platform);
+  if (c === p) return true;
+  // After normalizeForCompare, separators are POSIX-style ('/').
+  const sep = '/';
+  return c.startsWith(p.endsWith(sep) ? p : p + sep);
+}
+
+/**
+ * Pure deterministic path check — does not consult process state directly so
+ * tests can simulate Windows / different homes / different envs.
+ */
+export function checkPathSafety(requestedPath: string, policy: PathSafetyPolicy = {}): PathSafetyResult {
+  const platform = policy.platform ?? osPlatform();
+  const home = policy.home ?? homedir();
+  const env = policy.env ?? process.env;
+  const strict = policy.strict ?? env.NOVELFORGE_STRICT_WORKSPACE === '1';
+  const systemPaths = policy.systemPaths ?? getSystemPaths(platform, env);
+
+  // Resolve using the policy's platform semantics so tests can simulate
+  // Windows paths on POSIX dev machines and vice-versa.
+  const resolved = resolvePlatform(requestedPath, platform);
+
+  // 1. System paths are always blocked, regardless of strict / permissive.
+  //    But /Library is fine if it's actually ~/Library (inside home).
+  const insideHome = pathStartsWith(resolved, home, platform);
+  for (const sp of systemPaths) {
+    if (pathStartsWith(resolved, sp, platform)) {
+      // Allow ~/Library/Application Support/... (inside home) even though /Library is a blocked prefix.
+      if (insideHome) continue;
+      return {
+        ok: false,
+        reason: `Refusing to write to a system directory: ${resolved}\nMatched blocked prefix: ${sp}\nNovelForge always refuses system paths regardless of NOVELFORGE_WORKSPACE.`,
+      };
+    }
+  }
+
+  // 2. Strict mode: must be inside NOVELFORGE_WORKSPACE.
+  if (strict) {
+    if (!policy.workspaceRoot) {
+      return {
+        ok: false,
+        reason: 'NOVELFORGE_STRICT_WORKSPACE=1 requires NOVELFORGE_WORKSPACE to be set, but it was not provided.',
+      };
+    }
+    const root = resolvePlatform(policy.workspaceRoot, platform);
+    if (!pathStartsWith(resolved, root, platform)) {
+      return {
+        ok: false,
+        reason: `Strict mode: ${resolved} is outside NOVELFORGE_WORKSPACE (${root}).\nEither move the project inside the workspace, unset NOVELFORGE_STRICT_WORKSPACE, or restart with a different NOVELFORGE_WORKSPACE.`,
+      };
+    }
+    return { ok: true };
+  }
+
+  // 3. Default permissive: allow.
+  return { ok: true };
+}
+
+// =============================================================================
+// guards (back-compat wrapper)
+// =============================================================================
+
+export function assertProjectPath(workspaceRoot: string | undefined, projectPath: string): void {
+  const result = checkPathSafety(projectPath, { workspaceRoot });
+  if (!result.ok) {
+    throw new Error(`❌ NovelForge path rejected.\n\n${result.reason}\n\nFix:\n  • Make sure the path is inside your user home, or\n  • Set NOVELFORGE_WORKSPACE=<dir> at MCP server startup and restart the host, or\n  • Unset NOVELFORGE_STRICT_WORKSPACE to use the permissive default.`);
   }
 }
+
+// keep `defaultSep` referenced — it's used implicitly by path.resolve.
+void defaultSep;
 
 // keep tsc happy if no other refs
 void writeFile;

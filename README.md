@@ -341,6 +341,25 @@ Each step instruction is split into `cacheable: true` / `false` parts. The `rule
 
 ---
 
+## Workspace & path safety
+
+By default NovelForge is **permissive about where projects live**: it only refuses to write to known **system directories** (POSIX `/etc`, `/usr`, `/bin`, `/sbin`, `/boot`, `/dev`, `/proc`, `/sys`, `/root`, `/System`, `/Library`, `/Applications`; Windows `%SystemRoot%`, `%ProgramFiles%`, `%ProgramFiles(x86)%`, `%ProgramData%`). Any other absolute or relative path is accepted — including paths under your home, mounted drives, app-specific session directories like `~/Library/Application Support/...`, or different drives on Windows like `D:\novels`.
+
+This is what makes hosts with per-session work directories (WorkBuddy, VS Code workspaces, custom AI editors) **work without per-host configuration**. The host can pass any path it wants and NovelForge writes there.
+
+### Strict mode (opt-in)
+
+For multi-tenant servers, shared machines, or paranoid setups, set `NOVELFORGE_STRICT_WORKSPACE=1` in the MCP server's env. Then NovelForge **also** requires every path to be inside `NOVELFORGE_WORKSPACE`:
+
+```bash
+# Locked to ~/novelforge — every tool call must stay inside it
+NOVELFORGE_STRICT_WORKSPACE=1 \
+NOVELFORGE_WORKSPACE=$HOME/novelforge \
+novelforge-agent-mcp
+```
+
+System paths are still unconditionally blocked even in strict mode (even if a misconfigured `NOVELFORGE_WORKSPACE=/` would otherwise let `/etc/...` through).
+
 ## Design philosophy
 
 **The host's LLM is the only thing in this system that thinks.** NovelForge is a runtime that knows:

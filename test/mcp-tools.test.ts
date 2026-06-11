@@ -60,16 +60,20 @@ async function submitStyleGuide(projectPath: string): Promise<void> {
   await submitStepResult({ projectPath, step: 'style_guide', content: styleGuide() });
 }
 
-test('MCP tools reject project paths outside the configured workspace', async () => {
+test('MCP tools reject project paths outside the configured workspace when NOVELFORGE_STRICT_WORKSPACE=1', async () => {
   const root = await mkdtemp(join(tmpdir(), 'nf-mcp-root-'));
   const outside = await mkdtemp(join(tmpdir(), 'nf-mcp-outside-'));
+  const prev = process.env.NOVELFORGE_STRICT_WORKSPACE;
+  process.env.NOVELFORGE_STRICT_WORKSPACE = '1';
   try {
     const server = createNovelAgentServer({ workspaceRoot: root });
     await assert.rejects(
       () => toolHandler(server, 'get_next_step')({ projectPath: outside }),
-      /outside workspace/i
+      /Strict mode/i
     );
   } finally {
+    if (prev === undefined) delete process.env.NOVELFORGE_STRICT_WORKSPACE;
+    else process.env.NOVELFORGE_STRICT_WORKSPACE = prev;
     await rm(root, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
   }

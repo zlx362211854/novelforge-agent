@@ -339,6 +339,25 @@ type ModelHint = 'cheap' | 'standard' | 'premium';
 
 ---
 
+## 工作区 & 路径安全
+
+NovelForge 默认对"项目落地位置"是**宽松的**:只拒绝写入已知的**系统目录**(POSIX 的 `/etc`、`/usr`、`/bin`、`/sbin`、`/boot`、`/dev`、`/proc`、`/sys`、`/root`、`/System`、`/Library`、`/Applications`;Windows 的 `%SystemRoot%`、`%ProgramFiles%`、`%ProgramFiles(x86)%`、`%ProgramData%`)。**其他任何路径都接受** —— 包括 home 下、外接硬盘、应用特定的会话目录(如 `~/Library/Application Support/...`)、Windows 的其他盘符(如 `D:\novels`)。
+
+正是这个默认行为,让"每个会话有独立工作目录"的 host(WorkBuddy、VS Code workspace、各种 AI 编辑器)**不需要额外配置就能直接用**。host 想往哪写,NovelForge 就往哪写。
+
+### 严格模式(opt-in)
+
+如果是多租户服务器、共享机器、或者偏执场景,在 MCP server 的环境变量里设 `NOVELFORGE_STRICT_WORKSPACE=1`。NovelForge 会**额外**要求所有路径必须在 `NOVELFORGE_WORKSPACE` 内:
+
+```bash
+# 锁定在 ~/novelforge,所有工具调用必须在范围内
+NOVELFORGE_STRICT_WORKSPACE=1 \
+NOVELFORGE_WORKSPACE=$HOME/novelforge \
+novelforge-agent-mcp
+```
+
+即使在严格模式下,系统目录仍然无条件被拦(即使有人误把 `NOVELFORGE_WORKSPACE=/` 配偏了,`/etc/...` 也不会被放行)。
+
 ## 设计哲学
 
 **这个系统里唯一动脑子的是宿主的 LLM。** NovelForge 是一个 runtime,它知道:
