@@ -1,237 +1,271 @@
 # NovelForge Agent
 
-[English README](README.md)
+> **用你已有的 LLM,写出能读得通的百章长篇。**
+> 不用 API key。不用月费。文件归你。模型你选。
 
-NovelForge 是一个面向 MCP 宿主（Claude Code、Codex CLI、Cursor 等）和本地 CLI 的工作流驱动长篇小说创作 Agent Runtime。
+[English README](README.md) · [npm](https://www.npmjs.com/package/novelforge-agent) · [GitHub](https://github.com/zlx362211854/novelforge-agent)
 
-**宿主 LLM 负责生成创作产物，NovelForge 负责运行时纪律。** 它管理可门控的长篇小说工作流，返回宿主下一步应遵循的精确指令和上下文，使用 zod schema 校验提交内容，把 Markdown 和 JSON 持久化到项目目录，修订章节时归档旧版本，并对章节、故事圣经片段和记忆卡建立 BM25 检索索引。
+NovelForge 把 Claude Code(或任何 MCP 宿主)变成一个**有纪律的长篇小说协作者**。**你出 LLM,NovelForge 强制执行让 100 章真正能串起来的那套规则** —— 它不允许你的 AI 悄悄忘记自己之前定下的设定。
 
-NovelForge 本身不调用模型 API。LLM 由 MCP 宿主提供，所以这个包内部没有模型厂商锁定。
+---
+
+## 为什么需要 NovelForge?
+
+AI 辅助写长篇的难点从来不是写第 1 章 —— 是让第 73 章还相信第 12 章建立的设定。模型会漂移。AI 文痕会堆积。伏笔会被遗忘。修真境界写到一半莫名变了。
+
+| 写长篇时一定会崩的事 | NovelForge 的做法 |
+|---|---|
+| 写到第 30 章,主角能力前后矛盾 | **独立角色状态表** —— 每章必须查阅并遵守,不能违反任何字段 |
+| 第 12 章 AI 就把故事圣经忘了 | 圣经**注入每章 prompt** + **BM25 检索**返回相关历史片段 |
+| AI 老用"不是X而是Y"、"这一刻"、破折号狂魔 | **15 条 AI 文痕清单 + 硬上限**;审稿门超标自动驳回 |
+| 伏笔埋了就再也不回收 | **伏笔生命周期跟踪**(埋→推进→回收/放弃);活跃伏笔注入每章 prompt |
+| 让 AI 修改但它写出来还是老样子 | **强制章节验收门** —— `chapter_review` 必须 clean 才能进下一章;有问题则强制 `chapter_revision`,3 轮不通过才允许人工放行 |
+| 写到第 5 章风格就跑偏 | 自动生成的**风格圣经**(语气/节奏/用词/句式韵律)每章强制执行 |
+| 30 章之后卷的结构变成一团泥 | **卷级节奏板**(承诺/中点/高潮/payoff/遗留悬念);章节会被告知自己在 beat 的哪个位置 |
+| 不记得某条支线推进到哪儿了 | 内置 **BM25 检索** —— `retrieve("昆吾剑")` 立刻看到所有涉及那条线的章节和记忆卡 |
+| 长 context 费钱 | **可缓存的 prompt 分段** + 每步 **`modelHint`**(memory 用 Haiku、正文用 Opus)。约省 30-50% token |
+| 百章大纲根本规划不出来 | **动态架构续规划** —— 一次只规划 5 章,写到边界自动提示下一批,不必一次想完全书 |
+
+---
+
+## 你能拿到什么
+
+### 🎯 带门控的工作流
+每章必须通过 **8 维验收门**(必要 beats、主线推进、人物推进、伏笔推进、故事圣经一致性、句式韵律、章末钩子、重复检查)才能进入下一章。不通过 → 强制修订。3 轮上限,然后人工放行。
+
+### 📚 跟着项目走的领域知识
+- **故事圣经**(Markdown)—— 写到一半可以改,旧版自动归档
+- **风格圣经**(JSON,含句式韵律反模式清单)
+- **每卷的节奏板** —— 起点 / 承诺 / 关键转折 / 中点 / 高潮 / 计划回收的伏笔
+- **角色状态表** —— 境界、目标、信念、秘密、关系 —— 每章记忆卡自动同步更新
+
+### 🧵 伏笔生命周期跟踪
+每章必须声明自己 plant/build/pay/drop 了哪些伏笔。Agent 维护活跃伏笔列表,**注入下一章 prompt** —— 这样 AI **物理上无法悄悄删除你的支线**。
+
+### 🔍 本地 BM25 检索(无 embedding,无 API)
+跨所有章节、圣经段落、记忆卡搜索任何关键词。**中文双字分词器**(unigram + bigram + 拉丁字符)。既被自动使用(每章 prompt 注入相关历史片段),也开放 `retrieve` 工具按需调用。
+
+### 🚫 AI 文痕防御
+15 条 LLM 文痕被列入清单 —— **"不是X而是Y"**、"在这一刻"、单句段链、括号内心独白段、破折号滥用、感官三连、段尾顿悟句、比喻堆砌、总分总收束、主语重复、反问腔、对白破折号切片等。章节生成 prompt 显式禁用,审稿 prompt 逐条计数,超标必修。
+
+### 💾 项目就是一个目录
+所有内容都是纯文本 + JSON,放在一个文件夹里。**拷走、邮件发、明天再回来继续。** 不依赖任何云端。
+
+### 🛟 出问题时的逃生口
+- `fork_project` —— 试不同的第 5 章走向,不丢原版
+- `delete_chapter` —— 干净删除,索引也清
+- `redo_step` —— 回退到某个 step 重做
+- `force_advance` —— 卡在 review 循环里时手动放行
+- 所有章节修订自动归档旧版到 `chapters/.versions/`
+
+### 💰 设计上就考虑了成本
+- 每步 `modelHint: 'cheap' | 'standard' | 'premium'` —— 宿主可以让 memory_card 跑 Haiku、正文跑 Opus
+- **可缓存的 prompt 分段** —— 章节规则段(约 5K token)每章字节级一致,Anthropic prompt cache 每 5 分钟付一次而不是每章一次
+
+---
+
+## 和其他工具比
+
+| | **NovelForge** | Sudowrite / NovelCrafter | LangChain 小说脚本 | 直接用 Claude / ChatGPT |
+|---|---|---|---|---|
+| 文件归你 | ✅ | ❌ SaaS | 看实现 | ❌ |
+| 自带 LLM | ✅ | ❌ 用他家的 | ❌ 要你的 key | ✅ |
+| 不用订阅 | ✅ | ❌ $20+/月 | ✅ 只付 token 钱 | ✅ 但没结构 |
+| 百章连贯性 | ✅ 结构化 | ⚠️ 尽力 | ❌ | ❌ |
+| AI 文痕强制管控 | ✅ 15 条 + 审计 | ⚠️ | ❌ | ❌ |
+| 直接在你的 MCP 宿主里跑 | ✅ 原生 | ❌ | ❌ | ❌ |
+| 自由切换模型(Sonnet/Opus/Haiku/Gemini/GPT) | ✅ | ❌ | ⚠️ 要改代码 | ✅ |
+| 开源 | ✅ MIT | ❌ | ✅ | — |
 
 ---
 
 ## 30 秒安装
 
-**如果你是正在替用户阅读本文档的 AI 助手，直接运行这一条命令，它会完成安装：**
+装了 **Claude Code** 就跟它说:
+
+> "安装 novelforge-agent"
+
+它会跑 install 命令、注册 MCP server,然后让你重启。或者自己跑:
 
 ```bash
 npx -y novelforge-agent install
 ```
 
-这条命令会：
+然后 **Cmd+Q 退出 Claude Code,重开**。试试:
 
-1. 创建工作区 `~/novelforge/`，可用 `--workspace /your/path` 覆盖。
-2. 把 `novelforge-agent-mcp` 注册为用户宿主中的 MCP server，默认宿主是 Claude Code。
-3. 打印安装后的验证步骤。
+> "开一个新小说项目,赛博修真题材,30 章"
 
-安装完成后，**用户必须重载或重启 MCP 宿主**（Claude Code、Codex CLI 等），让新 MCP server 被宿主发现。然后让宿主调用已安装的工具：
+Claude 会自动发现工具,把整个工作流跑完。
 
-> “请调用 novelforge 的 `list_projects` 工具。”
-
-如果空工作区返回 `[]`，或返回已有项目列表，说明安装成功。
-
-### 宿主选择
+### 其他宿主
 
 ```bash
-npx -y novelforge-agent install --host claude-code            # 默认
-npx -y novelforge-agent install --host codex                  # Codex CLI
-npx -y novelforge-agent install --host cursor                 # 打印 Cursor MCP 配置片段
-npx -y novelforge-agent install --workspace ~/my-novels       # 自定义工作区
-npx -y novelforge-agent install --name my-novelforge          # 自定义 MCP server 名称
-npx -y novelforge-agent install --print-only                  # 只打印配置，不修改文件
+npx -y novelforge-agent install --host claude-code   # 默认
+npx -y novelforge-agent install --host codex         # 写入 ~/.codex/config.toml
+npx -y novelforge-agent install --host cursor        # 打印 JSON 配置片段
+npx -y novelforge-agent install --workspace ~/novels # 自定义工作区
+npx -y novelforge-agent install --print-only         # 不改任何配置文件,只打印
 ```
 
-### install 命令对不同宿主做什么
-
-| 宿主 | 行为 |
-|------|------|
-| `claude-code` | 运行 `claude mcp add -s user -e NOVELFORGE_WORKSPACE=… novelforge -- npx -y novelforge-agent-mcp`。如果找不到 `claude` CLI，则打印可放入 `~/.claude.json` 的 JSON 片段。 |
-| `codex` | 向 `~/.codex/config.toml` 追加 `[mcp_servers.novelforge]` 配置。 |
-| `cursor` | 打印可粘贴到 Cursor MCP 设置里的 JSON 片段。 |
-
-安装器是**幂等且安全**的：它不会覆盖同名已有配置。要修改配置，请手动编辑宿主配置，或用 `--name` 注册成另一个名称。
+任何支持 stdio MCP server 的宿主都能用 —— 把打印的 JSON 片段粘贴到 Cline、Continue、LibreChat、Goose、Zed、VS Code MCP 扩展里。
 
 ---
 
-## 它给宿主提供什么
+## 写一章实际发生了什么
 
-| 阶段 | 步骤 | 宿主做什么 | NovelForge 保存什么 |
-|------|------|------------|---------------------|
-| 初始化 | `novel_metadata` | 输出 JSON：标题、题材、premise、核心人物 | `novel.json` |
-|  | `story_bible` | 输出 Markdown：人物、世界规则、主线和伏笔 | `story-bible.md` |
-|  | `style_guide` | 输出 JSON：叙事声音、节奏、用词、对白规则、禁用模式、行文节奏、示例段落 | `style-guide.json` |
-|  | `architecture` | 输出 JSON：全本、卷、卷级节奏、章节纲要 | `architecture/{full.md, volumes.json, volume-pacing.json, chapters.json}` |
-| 循环 | `chapter` | 写第 N 章 Markdown 正文 | `chapters/NNN.md` |
-|  | `chapter_review` | 执行章节验收门槛：required beats、主线/人物/伏笔推进、故事圣经一致性、行文节奏、结尾钩子、重复桥段检查 | `reviews/chapter/chapter-NNN.json` |
-|  | `chapter_revision` | 如果 review 发现问题，重写章节；旧版本自动归档 | `chapters/.versions/NNN.<ts>.md` |
-|  | `memory_card` | clean review 后，抽取第 N 章记忆卡，并更新角色/伏笔状态 | `memory/chapter-NNN.json`, `characters.json`, `threads.json` |
-| 收束 | `continuity_review` | 审阅 1..N 章连续性冲突 | `reviews/continuity-S-E.json` |
-| 支线动作 | `chapter_review` | 单章编辑审稿 | `reviews/chapter/chapter-NNN.json` |
-|  | `chapter_revision` | 重写章节；旧版本自动归档 | `chapters/.versions/NNN.<ts>.md` |
-|  | `cross_chapter_review` | 跨章节连续性审查 | `reviews/cross/cross-S-E.json` |
-
-每次写入章节、故事圣经、记忆卡时，NovelForge 也会更新项目内 BM25 索引（`.index/`），这样后续章节生成时可以把相关历史片段交给宿主，也可以响应宿主临时发起的 `retrieve` 查询。章节生成上下文还会包含风格指南（`style-guide.json`）、独立角色状态表（`characters.json`）和当前卷级节奏板（`architecture/volume-pacing.json`）。风格指南中的 `proseRhythm` 会检查过度短句密度、连续单句成段、靠换行制造伪节奏、过度直白心理解释、重复句式等问题。
-
-## 本地开发安装
-
-要求 Node 20+。
-
-```bash
-git clone <this repo>
-cd novelforge-agent
-npm install
-npm run build
+```
+你说: "继续写下一章"
+  │
+  ▼
+Claude → get_project_status      (知道你写到哪)
+Claude → get_next_step           (拿到第 N 章的 prompt)
+        │
+        │  Prompt 里附带:
+        │   • 故事圣经(截 4K 字)
+        │   • 当前角色状态
+        │   • 卷级 beat 位置("rising_action,中点在第 12 章")
+        │   • 活跃伏笔列表
+        │   • BM25 检索到的相关历史片段
+        │   • 风格圣经(含句式韵律反模式)
+        │   • 15 条 AI 文痕禁忌
+        │   • 字数目标(~3000 字 ±20%)
+        ▼
+Claude 生成章节 → save_chapter
+  │
+  ▼
+chapter_review(自动门,8 维度审计)
+  │
+  ├── clean? ─────────► memory_card → 自动更新伏笔 & 角色表 → 下一章
+  │
+  └── issues_found? ──► chapter_revision(旧版自动归档)
+                          │
+                          └─► 回到 chapter_review
+                              (3 轮上限,超限触发 force_advance + 审计记录)
 ```
 
-运行测试：
+**每章背后是多次 LLM 调用**,但你只说了一句话。**纪律对你不可见,对模型不可绕过。**
 
-```bash
-npm test
+---
+
+## 这个工具适合谁
+
+**你会喜欢,如果你是**:
+- 个人作者 / 网文写手,想要 AI 帮忙但**不放弃文件控制权**
+- 已经在用 Claude Code / Codex / Cursor,不想再装一堆工具
+- 受够了"Sudowrite 类工具长得都一样" —— 你想自己选模型
+- 在写 10 万字以上,第 50 章必须记得第 5 章发生了什么
+
+**别选 NovelForge,如果**:
+- 你想要一个带时间线、剧情板、可视化大纲的 web 工具(去用 Plottr / Scrivener + Sudowrite)
+- 你只写 3 页短篇(Claude 单独用就够了)
+- 你没装 MCP 宿主也不想装(这不是独立 web app)
+
+---
+
+## 工具清单(26 个,按类别折叠)
+
+<details>
+<summary><strong>项目生命周期 & 状态(4 个)</strong></summary>
+
+- `start_novel_project` —— 创建新项目,返回第一步指令
+- `list_projects` —— 列出所有项目(最新优先)
+- `get_project_status` —— 一屏摘要
+- `get_next_step` —— 返回下一步的 prompt + 打包好的 context
+</details>
+
+<details>
+<summary><strong>工作流(3 个)</strong></summary>
+
+- `submit_step_result` —— 提交当前步骤的产物(zod schema 校验)
+- `get_context` —— 按用途构造 context,不改变状态
+- `save_chapter` —— 通过工作流门提交章节(自动进入 chapter_review)
+</details>
+
+<details>
+<summary><strong>语义化动作(5 个)</strong></summary>
+
+- `generate_chapter` —— 返回某章的生成 context
+- `extract_memory_card` —— 返回某章的记忆卡提取 context
+- `review_chapter` —— 单章审稿 side-track
+- `revise_chapter` —— 修订某章(自动归档旧版)
+- `cross_chapter_review` —— 跨章节连续性审计
+</details>
+
+<details>
+<summary><strong>领域知识编辑(5 个)</strong></summary>
+
+- `amend_novel_metadata` —— 更新标题/题材/人物(改 title 时自动重命名项目目录)
+- `amend_story_bible` —— 替换圣经,归档旧版,重建索引
+- `list_bible_versions` —— 列出历史圣经版本
+- `list_threads` / `update_thread` —— 读写伏笔跟踪器
+</details>
+
+<details>
+<summary><strong>检索(1 个)</strong></summary>
+
+- `retrieve` —— BM25 检索章节 / 圣经 / 记忆卡,支持中文
+</details>
+
+<details>
+<summary><strong>逃生口(5 个)</strong></summary>
+
+- `fork_project` —— 把项目复制成新分支
+- `delete_chapter` —— 删除章节 + memory + reviews + 索引
+- `redo_step` —— 回退到某个 step 重做
+- `force_advance` —— 卡在 review/revision 循环时手动放行
+</details>
+
+<details>
+<summary><strong>可观测性(4 个)</strong></summary>
+
+- `get_recent_events` —— 最近的审计事件
+- `list_runs` —— 按 runId 分组的工具调用历史
+- `get_run_log` —— 一次工具调用的完整事件
+- `get_artifact_summary` —— 不暴露内容的情况下返回文件 sha256 + 大小 + 修改时间
+</details>
+
+所有工具默认返回 Markdown 摘要;传 `verbose: true` 同时附带原始 JSON 数据。工作流工具的 instruction / context 预览受边界限制,完整 payload 写入 `.agent-recovery/mcp-context/`。
+
+---
+
+## 工作流是怎么走的
+
+```
+novel_metadata → story_bible → style_guide → architecture → chapter
+                                                            ↓
+                                                       chapter_review
+                                                       ┌────┴────┐
+                                                    clean    issues_found
+                                                       ↓          ↓
+                                                memory_card  chapter_revision
+                                                       ↓          ↓
+                                ┌─────────────────────┐    回到 chapter_review
+                          下一章已规划         所有章节写完
+                              ↓                    ↓
+                           chapter           continuity_review
+                            (循环)                  ↓
+                              ↑                  complete
+                              │
+                              │
+                    architecture_extension
+                    (规划 < 全本目标时自动触发)
 ```
 
-## 从 CLI 使用
+`chapter_review` **既是线性流程里的自动门**,也是**任何时候都能手动触发的 side-track**。`chapter_review` / `chapter_revision` / `cross_chapter_review` 这三种 side-track 完成后,自动回到触发前的 step。
 
-```bash
-# 1. 创建新项目
-node dist/src/cli/index.js start --prompt "写一本赛博修仙小说" --length medium --chapters 5
-# → 输出 { state, next }，next.instruction 是第 1 步的提示词
+转移表写在 [src/core/steps/](src/core/steps/) 各个 handler 的 `next:` 字段 + [src/core/workflow.ts](src/core/workflow.ts) 的 dispatcher 里。没有外部 graph 引擎。
 
-# 2. 列出已有项目
-node dist/src/cli/index.js list
-# → 按更新时间倒序展示，包含当前步骤和章节数量
+---
 
-# 3. 查看某个项目状态
-node dist/src/cli/index.js status novels/<slug>
+## 项目目录长什么样
 
-# 4. 获取下一步 instruction + context
-node dist/src/cli/index.js next novels/<slug>
-
-# 5. 提交生成内容，文件可以是 JSON 或 Markdown
-node dist/src/cli/index.js submit novels/<slug> --step chapter --file ch1.md
-
-# 6. 触发单章审稿
-node dist/src/cli/index.js review novels/<slug> --chapter 3
-
-# 7. 触发章节修订，feedback 可以是字符串，也可以来自 --feedback-file
-node dist/src/cli/index.js revise novels/<slug> --chapter 3 --feedback "让节奏更紧"
-
-# 8. 跨章节审查，默认覆盖所有已生成章节
-node dist/src/cli/index.js cross-review novels/<slug> --start 1 --end 5
-
-# 9. 对章节、圣经、记忆卡做 BM25 检索
-node dist/src/cli/index.js retrieve novels/<slug> \
-  --query "昆吾剑" --top-k 8 --types chapter,memory --start 1 --end 5
-
-# 10. 构建指定用途的上下文，适合调试 prompt
-node dist/src/cli/index.js context novels/<slug> \
-  --purpose chapter_generation --chapter 4
 ```
-
-英文项目可以在 `start` 时传入 `--language en-US`。所有 prompt 都有对应英文版本，位于 [src/core/prompts/en-US.ts](src/core/prompts/en-US.ts)。
-
-## 作为 MCP Server 使用
-
-### Claude Code
-
-```jsonc
-// ~/.claude.json  或项目内 .mcp.json
-{
-  "mcpServers": {
-    "novelforge": {
-      "command": "node",
-      "args": ["/absolute/path/to/novelforge-agent/dist/src/mcp/server.js"],
-      "env": {
-        "NOVELFORGE_WORKSPACE": "/absolute/path/where/projects/should/live"
-      }
-    }
-  }
-}
-```
-
-重载 Claude Code 后输入：
-
-> 我想写一本赛博修仙小说
-
-Claude 会发现 `start_novel_project` 工具，调用它拿到 `novel_metadata` 的第一步 prompt，生成 JSON，调用 `submit_step_result`，然后再调用 `get_next_step` 获取下一步 prompt/context，如此循环直到 `complete`。MCP 写入型工具会返回紧凑结果，不会把长章节正文通过工具结果再次回显。读上下文工具如果可能超过宿主 token 限制，NovelForge 会返回 `instructionPreview` / `contextPreview` 和 `fullContextPath`；需要完整 payload 时读取这个本地 JSON 文件。
-
-### Codex CLI
-
-```toml
-# ~/.codex/config.toml
-[mcp_servers.novelforge]
-command = "node"
-args = ["/absolute/path/to/novelforge-agent/dist/src/mcp/server.js"]
-
-[mcp_servers.novelforge.env]
-NOVELFORGE_WORKSPACE = "/absolute/path/where/projects/should/live"
-```
-
-### 在后续会话中继续写
-
-`list_projects` 会查找 `NOVELFORGE_WORKSPACE/novels/` 下所有项目，并按更新时间倒序排列。宿主打开新会话时，应该先调用它，选择目标 `projectPath`，再调用 `get_project_status` 获取一屏项目摘要，最后用 `get_next_step` 继续当前步骤。
-
-## 工具参考
-
-### 项目生命周期
-
-- **`start_novel_project`** `(prompt, language?, outputDir?, lengthPreset?, targetChapters?, plannedTotalChapters?)` — 在 `<workspaceRoot>/<outputDir>/<prompt-slug>-<rand6>/` 下创建项目，并返回第一步 instruction。`novel_metadata` 被接受后，目录会重命名为 `<title-slug>-<same-rand6>/`；调用方后续必须使用返回的 `state.projectPath`。`targetChapters` 是每批规划章节数，MCP 默认 5。`lengthPreset` 控制全书规模：`short` 约 12 章，`medium` 约 100 章，`long` 为开放式长篇。直接调用 tool 默认 `medium`；prompt helper 在用户未指定篇幅时应先让用户选择。显式传入 `plannedTotalChapters` 时会覆盖 preset。
-- **`list_projects`** `(outputDir?)` — 按更新时间倒序列出工作区内所有项目。
-- **`get_project_status`** `(projectPath)` — 返回紧凑状态摘要：当前步骤、已写章节、开放伏笔、最新 review 结果等。
-- **`get_next_step`** `(projectPath)` — 返回当前工作流下一步的 prompt 和打包上下文。大 prompt/context 会以 `instructionPreview` / `contextPreview` + `fullContextPath` 返回，不会把巨大字段直接塞进 MCP tool result。
-
-### 工作流推进
-
-- **`submit_step_result`** `(projectPath, step, content? | contentPath?)` — 校验提交产物是否符合当前 step 的 zod schema，保存产物，推进状态机，并返回紧凑 mutation result。长章节、review、memory、architecture payload 建议先写入项目文件，再用 `contentPath` 提交，这样宿主 UI 只显示文件路径，不会展开巨大正文或 JSON。它不包含下一步完整 prompt/context；需要时请随后调用 `get_next_step`。失败提交会写入 `.agent-recovery/failed-*.txt`，状态不会推进。
-- **`get_context`** `(projectPath, purpose, chapterNumber?, start?, end?)` — 在不改变状态的情况下构建指定用途的上下文。适合宿主查看“如果现在生成，会拿到什么上下文”。大上下文同样使用 `contextPreview` + `fullContextPath`。
-
-动态规划内置在状态机里：每章通过 review 并提交 memory card 后，NovelForge 会检查 `plannedTotalChapters` 和 `architecture/chapters.json` 中已有的最高规划章节。如果下一章仍在全书目标内，但尚未被规划，下一步会变成 `architecture_extension`；宿主提交续规划 JSON 后，继续进入 `chapter`。
-
-续规划带有长篇节奏保护：非终章如果同时塞入重大真相、核心回收、大幅升级、强战斗、新地图开启、顶级反派升级等过多不可逆转折，会被拒绝，应该拆分到多章。
-
-### 语义动作工具
-
-- **`generate_chapter`** `(projectPath, chapterNumber)` — 只构建指定章节的生成上下文，不改变状态。大上下文可能返回 `contextPreview` + `fullContextPath`。
-- **`extract_memory_card`** `(projectPath, chapterNumber)` — 只构建指定章节的记忆卡抽取上下文，不改变状态。大上下文可能返回 `contextPreview` + `fullContextPath`。
-- **`review_chapter`** `(projectPath, chapterNumber)` — 进入单章编辑审稿支线，并返回审稿 prompt。大 prompt/context 可能返回 `instructionPreview` / `contextPreview` + `fullContextPath`。之后通过 `submit_step_result(step="chapter_review")` 恢复原流程。
-- **`revise_chapter`** `(projectPath, chapterNumber, feedback?)` — 进入章节修订支线。大 prompt/context 可能返回 `instructionPreview` / `contextPreview` + `fullContextPath`。提交 `chapter_revision` 后，旧版本会自动归档到 `chapters/.versions/`。
-- **`cross_chapter_review`** `(projectPath, start?, end?)` — 进入跨章节审查支线，默认覆盖所有已生成章节。大 prompt/context 可能返回 `instructionPreview` / `contextPreview` + `fullContextPath`。
-- **`save_chapter`** `(projectPath, chapterNumber, title, content? | contentPath?)` — 通过状态机提交当前章节；要求 `currentStep="chapter"`，提交后进入强制 `chapter_review`。真实章节建议用 `contentPath` 提交。返回的 MCP payload 是紧凑结果，不回显章节正文或 review 上下文。
-
-### 项目操作
-
-- **`amend_novel_metadata`** `(projectPath, content?, title?, genre?, premise?, language?, style?, coreCast?, reason?)` — 更新 `novel.json`；如果 `title` 变化，会同步重命名项目目录，之后必须使用返回的 `projectPath`。
-- **`amend_story_bible`** `(projectPath, content, reason?)` — 替换 `story-bible.md`，归档旧版本，并重建故事圣经索引。
-- **`list_bible_versions`** `(projectPath)` — 列出已归档的故事圣经版本。
-- **`list_threads`** `(projectPath, status?)` — 列出从 memory card 收集的伏笔线程。
-- **`update_thread`** `(projectPath, id, patch)` — 更新一个伏笔线程。
-- **`fork_project`** `(sourceProjectPath, label?)` — 把项目复制成一个兄弟分支，并生成新的 project id。
-- **`delete_chapter`** `(projectPath, chapterNumber)` — 删除章节、记忆卡、审稿、归档版本和索引条目。
-- **`redo_step`** `(projectPath, step, chapterNumber?)` — 回滚到指定步骤，重新生成相关产物。
-
-### 可观测性
-
-- **`get_recent_events`** `(projectPath, limit?, type?)` — 读取 `.agent-logs/events.jsonl` 中最近的审计事件。
-- **`list_runs`** `(projectPath, limit?)` — 按 `runId` 聚合最近的 MCP tool 调用，包含状态和耗时。
-- **`get_run_log`** `(projectPath, runId, limit?)` — 查看某一次 MCP tool 调用的完整审计事件。
-- **`get_artifact_summary`** `(projectPath, path)` — 返回项目产物的文件大小、修改时间和 sha256，不暴露完整内容。
-
-NovelForge 会在项目目录内记录 tool 调用、tool 错误、被拒绝的提交和工作流状态变更。章节 `content`、prompt、instruction、context、MCP text payload 这类长文本或敏感文本只记录 `{ length, sha256 }` 摘要，不写入原文。给宿主看的 MCP 返回保持紧凑；必须落盘的大上下文会保存到 `.agent-recovery/mcp-context/`。
-
-### 检索
-
-- **`retrieve`** `(projectPath, query, topK?, types?, chapterStart?, chapterEnd?)` — 对章节段落、故事圣经 H2 片段、记忆卡做 BM25 风格词法检索。内置 CJK bigram 分词器，支持中英文混合查询，不依赖外部 embedding 模型。
-
-## 项目目录结构
-
-磁盘上的单个小说项目：
-
-```txt
 novels/<title-slug>-<rand6>/
-├── agent-state.json              # 工作流状态 currentStep/currentChapter/files 等
-├── novel.json                    # 小说 metadata
+├── agent-state.json              # 当前 step、files 映射、修订计数
+├── novel.json                    # 标题 / 题材 / premise / 人物
 ├── characters.json               # 独立角色状态表
 ├── story-bible.md
-├── style-guide.json              # 可执行文风指南
+├── style-guide.json              # 语气 / 节奏 / 用词 / proseRhythm
 ├── architecture/
 │   ├── full.md
 │   ├── volumes.json
@@ -239,107 +273,179 @@ novels/<title-slug>-<rand6>/
 │   └── chapters.json
 ├── chapters/
 │   ├── 001.md
-│   ├── 002.md
-│   └── .versions/                # 修订前章节快照
+│   └── .versions/                # 修订前的章节快照
 ├── memory/
 │   └── chapter-001.json
+├── threads.json                  # 伏笔跟踪器
 ├── reviews/
-│   ├── continuity-1-N.json
 │   ├── chapter/chapter-NNN.json
-│   └── cross/cross-S-E.json
-├── .index/
-│   ├── lexical.json              # MiniSearch 序列化索引
-│   └── manifest.json             # 外部文档 id 列表
-├── .agent-logs/
-│   └── events.jsonl              # tool 调用和状态变更的紧凑审计日志
-└── .agent-recovery/
-    ├── failed-*.txt              # 被拒绝的提交，便于排查
-    ├── mcp-context/*.json        # MCP 大上下文结果的完整落盘 payload
-    └── side-track.json           # 支线 review/revision 的恢复信息
+│   ├── cross/cross-S-E.json
+│   └── continuity-1-N.json
+├── .index/                       # BM25(MiniSearch)
+├── .agent-logs/events.jsonl      # 审计日志
+└── .agent-recovery/              # 被拒提交 + 超大 context 溢出
 ```
 
-整个项目目录都是自包含的，可以复制、分享或删除。
+**整个目录自包含** —— `cp -r` 拷到 U 盘、丢 Dropbox 同步、commit 到 git。没有外部状态。
 
-## 工作流如何推进
+---
 
-```txt
-novel_metadata → story_bible → style_guide → architecture → chapter
-                                                            ↓
-                                                       chapter_review
-                                                            ↓
-                                                 ┌──────────┴──────────┐
-                                               clean             issues_found
-                                                 ↓                    ↓
-                                            memory_card       chapter_revision
-                                                 ↓                    ↓
-                  ┌──────────────┬──────────────┐        │
-          已规划下一章        需要续规划       全书完成    │
-                ↓              ↓              ↓           │
-             chapter   architecture_extension ↓           │
-                              ↓        continuity_review  │
-                           chapter             ↓          │
-                                            complete       │
-                                                       （回到
-                                                    chapter_review）
+## 直接在 shell 里用(不需要 MCP 宿主)
+
+同一个引擎也能跑纯 CLI:
+
+```bash
+# 新建项目
+novelforge-agent start --prompt "写一本赛博修仙小说" --length medium --chapters 5
+
+# 查看 / 继续
+novelforge-agent list
+novelforge-agent status novels/<slug>
+novelforge-agent next novels/<slug>
+
+# 提交自己写的章节(或任何 LLM 生成的)
+novelforge-agent submit novels/<slug> --step chapter --file ch1.md
+
+# 审稿 / 修订 / 检索 / 跨章审计 —— 和 MCP 工具一一对应
+novelforge-agent review novels/<slug> --chapter 3
+novelforge-agent revise novels/<slug> --chapter 3 --feedback "让节奏更紧"
+novelforge-agent retrieve novels/<slug> --query "昆吾剑" --top-k 8
+novelforge-agent cross-review novels/<slug> --start 1 --end 5
 ```
 
-`chapter_review` 既是手动支线，也是自动章节验收门槛。在正常章节循环中，review 的 `status` 必须是 `clean`，工作流才允许进入 `memory_card`。如果 review 返回 `issues_found`，工作流会强制进入 `chapter_revision`，然后回到 `chapter_review` 再审一次。
+默认输出 Markdown。脚本用 `--json` 取机器可读输出。
 
-支线步骤（`chapter_review`、`chapter_revision`、`cross_chapter_review`）可以随时通过语义动作工具触发。手动支线通过 `submit_step_result` 完成后，工作流会回到触发支线前的原步骤。
+---
 
-正常章节循环是动态的：`memory_card` 之后，NovelForge 会检查下一章是否已规划。如果没有规划，并且项目尚未达到 `plannedTotalChapters`，下一步会变成 `architecture_extension`，续完规划后再继续写章。
+## 给宿主的成本优化接口
 
-状态迁移由 [src/core/steps/](src/core/steps/) 下各 step handler 的 `next:` 声明和 [src/core/workflow.ts](src/core/workflow.ts) 的 dispatcher 共同实现。这里没有 LangGraph 或外部 graph engine。
+每个 step instruction 都带两个字段,宿主可以用它们大幅省 token。
+
+### `modelHint`
+
+```ts
+type ModelHint = 'cheap' | 'standard' | 'premium';
+```
+
+| Step | 等级 | 理由 |
+|---|---|---|
+| `chapter` / `chapter_revision` / `story_bible` / `architecture` / `architecture_extension` | `premium` | 创意写作 |
+| `style_guide` / `chapter_review` / `*_amend` / `cross_chapter_review` / `continuity_review` | `standard` | 分析 / 结构化输出 |
+| `memory_card` / `complete` | `cheap` | 抽取 / 平凡操作 |
+
+### `segments[]` —— prompt caching
+
+每个 step instruction 拆成 `cacheable: true/false` 的几段。chapter 生成的 `rules` 段(约 5K token)**每章字节级一致**。Anthropic 风格 `cache_control: { type: 'ephemeral' }` 能让 30 章长篇省约 30% 输入开销。
+
+---
+
+## 设计哲学
+
+**这个系统里唯一动脑子的是宿主的 LLM。** NovelForge 是一个 runtime,它知道:
+
+- 工作的**顺序**(状态机)
+- 每个产物的**形状**(zod schema)
+- 领域的**词汇**(prompts + rules)
+
+…然后拒绝让宿主保存任何违反规则的内容。
+
+我们刻意选了这条路,而不是更常见的"MCP server 内置 LLM"模式,原因:
+
+- **你的数据,你的模型**:NovelForge 内部没有任何 API key,没有厂商锁定
+- **成本透明**:token 走宿主账单,中间没有藏起来的中间商
+- **模型自由**:从 Sonnet 换 Opus,换 Haiku,换 Gemini,换本地 Llama —— agent 不动
+- **宿主无关**:今天 Claude Code,明天 Cursor,后天某个新 MCP 宿主 —— agent 不在乎
+
+代价是:NovelForge **没有 MCP 宿主就没法用**,也不是一个独立的"AI 小说生成器" web app。它是**你已经在用的 LLM 下面的纪律层**。
+
+---
 
 ## 架构
 
-```txt
+```
 src/
-├── core/                         # 纯领域逻辑，无 transport
-│   ├── types.ts                  # AgentState、WorkflowStep、MemoryCard 等
-│   ├── schemas.ts                # zod schema，唯一校验层
-│   ├── projectStore.ts           # 文件系统持久化
-│   ├── projectDiscovery.ts       # list/status
-│   ├── characterStore.ts         # 独立角色状态表
-│   ├── prompts/                  # 多语言 prompt 包 zh-CN/en-US
-│   ├── steps/                    # 每个 WorkflowStep 一个 handler
-│   ├── retrieval/                # BM25 索引、CJK tokenizer、chunker
-│   ├── contextBuilder.ts         # 按用途打包上下文
-│   └── workflow.ts               # dispatcher、contextForStep、side-track、submit
+├── core/                          # 纯领域逻辑,无 transport
+│   ├── types.ts                   # AgentState、WorkflowStep、MemoryCard、…
+│   ├── schemas.ts                 # zod schemas(唯一的校验器)
+│   ├── projectStore.ts            # 文件系统持久化
+│   ├── characterStore.ts          # 角色状态表
+│   ├── threadStore.ts             # 伏笔生命周期
+│   ├── prompts/                   # 按语言的 prompt 包(zh-CN、en-US)
+│   ├── steps/                     # 一个 step 一个 handler 文件
+│   ├── retrieval/                 # BM25 索引 + CJK 分词
+│   ├── contextBuilder.ts          # 按用途打包 context
+│   └── workflow.ts                # dispatcher: 状态机 + side-track
 ├── mcp/
-│   ├── server.ts                 # stdio 入口
-│   └── tools.ts                  # 25 个 MCP tools + 10 个 MCP prompts
+│   ├── server.ts                  # stdio MCP 入口
+│   └── tools.ts                   # 26 个 MCP 工具 + 10 个 MCP prompt
 └── cli/
-    └── index.ts                  # 等价 CLI 子命令
+    └── index.ts                   # 等价的 CLI 子命令
 ```
 
-NovelForge 没有 LLM 依赖：
+Agent 零 LLM 依赖:
 
 ```bash
 $ grep -RIl "anthropic\|openai\|@google" src package.json
-# 无结果
+# (无结果 —— 只有 @modelcontextprotocol/sdk、zod、minisearch)
 ```
 
-核心依赖只有 `@modelcontextprotocol/sdk`、`zod`、`minisearch`。
+---
 
-## 不只是一个 Skill
+## 从源码安装 / 贡献
 
-Skill 可以描述一个写作流程。NovelForge 会执行并约束这个流程。
+```bash
+git clone https://github.com/zlx362211854/novelforge-agent.git
+cd novelforge-agent
+npm install
+npm run build
+npm test            # 89 个单元 + 集成测试
+npm run test:e2e    # 15 步 CLI 端到端 smoke(不需要 LLM)
+```
 
-它会持久化工作流状态，用 zod schema 校验产物，为失败提交写 recovery 文件，为生成内容建立检索索引，维护角色/伏笔状态，归档修订版本，并且在 `chapter_review` 这类门控步骤通过前拒绝继续推进。
+加新 step 的步骤:
 
-可以用 skill 或 prompt pack 教宿主 AI 如何更好地调用 NovelForge；但当你需要持久状态、校验、恢复、检索和可重复的长篇生产流程时，需要的是这个 runtime。
+1. 在 [src/core/types.ts](src/core/types.ts) 的 `WorkflowStep` 加 step 名
+2. 在 [src/core/schemas.ts](src/core/schemas.ts) 加 zod schema
+3. 在 [src/core/prompts/zh-CN.ts](src/core/prompts/zh-CN.ts) 和 [en-US.ts](src/core/prompts/en-US.ts) 加 prompt builder
+4. 在 `src/core/steps/<name>.ts` 写 handler
+5. 在 [src/core/steps/index.ts](src/core/steps/index.ts) 注册
+6. 如果需要打包 context,在 [src/core/workflow.ts](src/core/workflow.ts) 的 `CONTEXT_RECIPES` 里加一行
+7. 在 [src/mcp/tools.ts](src/mcp/tools.ts) 的 `submit_step_result` 的 `step` enum 加它
 
-## 添加新的工作流步骤
+---
 
-1. 在 [src/core/types.ts](src/core/types.ts) 的 `WorkflowStep` 中添加步骤名。
-2. 在 [src/core/schemas.ts](src/core/schemas.ts) 中添加 zod schema（如果该步骤接收结构化内容）。
-3. 在 [src/core/prompts/zh-CN.ts](src/core/prompts/zh-CN.ts) 和 [src/core/prompts/en-US.ts](src/core/prompts/en-US.ts) 中添加 prompt builder。
-4. 在 `src/core/steps/<name>.ts` 创建 handler，返回 `StepApplyResult`。
-5. 在 [src/core/steps/index.ts](src/core/steps/index.ts) 注册。
-6. 如果该步骤需要上下文，在 [src/core/workflow.ts](src/core/workflow.ts) 的 `CONTEXT_RECIPES` 中添加条目。
-7. 在 [src/mcp/tools.ts](src/mcp/tools.ts) 的 `submit_step_result` step enum 中添加步骤名。
+## Anthropic API 直接调用示例
 
-## 设计原则
+```ts
+import Anthropic from '@anthropic-ai/sdk';
 
-这个系统里唯一“思考”的是宿主 LLM。NovelForge 是一个工作流 runtime，它知道工作的顺序、每个产物的形状和长篇小说领域的关键词汇，并拒绝保存不符合规则的提交。长篇小说创作需要这种纪律，胜过再套一层 LLM wrapper。
+// 从 NovelForge 拿 step 的 segments + modelHint
+const next = await getNextStepViaMcp(projectPath);
+const rules = next.segments.find((s) => s.id === 'rules');
+const meta  = next.segments.find((s) => s.id === 'chapter_meta');
+const ctx   = next.segments.find((s) => s.id === 'context');
+
+const anthropic = new Anthropic();
+const model = ({ cheap: 'claude-haiku-4-5', standard: 'claude-sonnet-4-7', premium: 'claude-opus-4-7' })[next.modelHint];
+
+const reply = await anthropic.messages.create({
+  model,
+  max_tokens: 8000,
+  system: [{ type: 'text', text: rules.text, cache_control: { type: 'ephemeral' } }],
+  messages: [{
+    role: 'user',
+    content: [
+      { type: 'text', text: meta.text },
+      { type: 'text', text: ctx.text },
+    ],
+  }],
+});
+
+await submitStepResult(projectPath, next.currentStep, reply.content[0].text);
+```
+
+---
+
+## License
+
+MIT。详见 [LICENSE](LICENSE)。
